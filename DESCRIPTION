@@ -1,0 +1,34 @@
+Package: LHWR
+Type: Package
+Title: Lorentz Hyperbolic Weighted Regression
+Version: 0.2.0
+Authors@R: c(
+    person("Bahadır", "Yüzbaşı", role = c("aut", "cre"),
+           email = "b.yzb@hotmail.com"),
+    person("Zuhal Küçükarslan", "Yüzbaşı", role = "aut")
+  )
+Author: Bahadır Yüzbaşı [aut, cre],
+  Zuhal Küçükarslan Yüzbaşı [aut]
+Maintainer: Bahadır Yüzbaşı <b.yzb@hotmail.com>
+Description: Provides tools for Lorentz Hyperbolic Weighted Regression (LHWR), a local weighted regression framework on the Lorentz hyperboloid. Locality is defined through Lorentz-hyperboloid distances and can be applied to geographic coordinates, latent feature maps, similarity embeddings, network embeddings, functional data summaries, and shape-analysis scores. The package provides Lorentz geometry utilities, hyperbolic distance computation, kernel weighting, bandwidth selection by AICc or cross validation, local weighted regression fitting, diagnostics, plotting, and simulation helpers.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Depends:
+    R (>= 4.1.0)
+Imports:
+    graphics,
+    grDevices,
+    MASS,
+    Rcpp,
+    stats
+LinkingTo:
+    Rcpp,
+    RcppArmadillo
+Suggests:
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+VignetteBuilder: knitr

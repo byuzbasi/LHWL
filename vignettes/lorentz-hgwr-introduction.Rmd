@@ -1,0 +1,195 @@
+---
+title: "Introduction to Lorentz Hyperbolic Weighted Regression"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to Lorentz Hyperbolic Weighted Regression}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+## Overview
+
+`LHWR` fits local weighted regression models when observations are represented
+by points on the two-dimensional Lorentz hyperboloid
+
+\[
+H^2 = \{z \in \mathbb{R}^{1,2}: \langle z,z\rangle_L = -1,\ z_0 > 0\}.
+\]
+
+The Lorentz inner product is
+
+\[
+\langle z,w\rangle_L = -z_0w_0 + z_1w_1 + z_2w_2,
+\]
+
+and the intrinsic hyperbolic distance is
+
+\[
+d_H(z,w) = \operatorname{acosh}(-\langle z,w\rangle_L).
+\]
+
+The response and predictors are ordinary real-valued variables. The geometry
+enters through the local kernel weights used by the regression, so `Z` need not
+be longitude-latitude coordinates. It may be a Lorentz-hyperboloid embedding
+constructed from geographic, feature-map, network, functional, clinical, or
+shape-based representations.
+
+## Simulate Intrinsic Hyperbolic Heterogeneity
+
+This example generates coefficient surfaces directly from Lorentz hyperbolic
+distances. This is useful for checking whether bandwidth selection is learning
+a meaningful local scale on \(H^2\).
+
+```{r}
+library(LHWR)
+
+set.seed(20260615)
+
+n <- 120
+r_max <- 5
+true_k <- 25
+snr <- 8
+heterogeneity <- 2
+
+H <- simulate_H2(n, r_max = r_max, uniform_area = TRUE)
+Z <- H$Z
+D <- hyperbolic_distance_matrix(Z, check = FALSE)
+
+local_h <- apply(D, 1, function(d) sort(d[d > 0])[true_k])
+centers <- round(seq(10, n - 10, length.out = 5))
+Phi <- sapply(centers, function(j) {
+  hgwr_kernel(D[, j], local_h[j], kernel = "bisquare")
+})
+
+beta0 <- 0.4 + heterogeneity * (1.45 * Phi[, 1] - 1.25 * Phi[, 4])
+beta1 <- 1.0 + heterogeneity * (1.65 * Phi[, 2] - 1.20 * Phi[, 5])
+beta2 <- -0.8 + heterogeneity * (1.55 * Phi[, 3] - 1.10 * Phi[, 4])
+beta_true <- cbind(Intercept = beta0, x1 = beta1, x2 = beta2)
+
+x1 <- as.numeric(scale(rnorm(n)))
+x2 <- as.numeric(scale(rnorm(n)))
+eta <- beta0 + beta1 * x1 + beta2 * x2
+sigma <- sqrt(var(eta) / snr)
+y <- eta + rnorm(n, sd = sigma)
+
+dat <- data.frame(y = y, x1 = x1, x2 = x2)
+```
+
+## Select a Bandwidth
+
+For adaptive bandwidths, candidate values are neighbor counts. In this
+simulation the coefficient surfaces were generated with `true_k = 25`.
+
+```{r}
+bw_cv <- bw.lhwr(
+  y ~ x1 + x2,
+  data = dat,
+  Z = Z,
+  approach = "CV",
+  kernel = "bisquare",
+  adaptive = TRUE,
+  bandwidth_type = "knn",
+  geometry = "lorentz",
+  bw_grid = seq(10, 80, by = 5)
+)
+
+bw_cv
+head(bw_cv$selection.table)
+plot(bw_cv)
+```
+
+The selected bandwidth is chosen by the requested prediction criterion. It is
+not forced to minimize coefficient error, because the true coefficients are not
+known in real applications.
+
+## Fit LHWR
+
+```{r}
+fit <- lhwr(
+  y ~ x1 + x2,
+  data = dat,
+  Z = Z,
+  bw = bw_cv$bw,
+  kernel = "bisquare",
+  adaptive = TRUE,
+  bandwidth_type = "knn",
+  geometry = "lorentz"
+)
+
+fit
+summary(fit)
+```
+
+Because this is a simulation, the true coefficient surface is known and we can
+compute coefficient recovery error.
+
+```{r}
+rmse_beta <- sqrt(mean(rowSums((fit$beta_hat - beta_true)^2)))
+rmse_y <- sqrt(mean(fit$residuals^2))
+
+c(RMSE_beta = rmse_beta, RMSE_y = rmse_y)
+```
+
+## Coefficient Map
+
+```{r}
+plot(fit, coefficient = "x1", Z = Z)
+```
+
+## Tangent-Space Approximation
+
+The package also supports a tangent-space approximation. Locations are mapped
+to one tangent plane with the Lorentz logarithmic map, and local weights are
+computed from the positive-definite Lorentz metric induced on that tangent
+plane. Equivalently, after choosing a Lorentz-orthonormal tangent basis, the
+same distances can be represented as Euclidean distances in two tangent
+coordinates.
+
+```{r}
+fit_tangent <- lhwr(
+  y ~ x1 + x2,
+  data = dat,
+  Z = Z,
+  bw = bw_cv$bw,
+  kernel = "bisquare",
+  adaptive = TRUE,
+  bandwidth_type = "knn",
+  geometry = "tangent"
+)
+
+fit_tangent$geometry
+```
+
+The Lorentz fit uses intrinsic hyperbolic distances for the weighting geometry.
+The tangent fit is useful as an approximation and diagnostic comparison.
+
+## Local Multicollinearity Diagnostics
+
+LHWR uses Lorentzian kernel weights to construct local design matrices.
+Therefore, local collinearity is assessed from weighted matrices
+
+\[
+X^\top W_i^{(H)} X,
+\]
+
+where \(W_i^{(H)}\) is induced by Lorentz hyperboloid distances. This follows
+the classical GWR local collinearity diagnostic logic, including condition
+numbers, variance inflation factors, and local weighted correlations. The
+Lorentz geometry changes the local neighborhood weights, not the underlying
+weighted linear algebra.
+
+```{r}
+lc <- local_collinearity(fit)
+lc
+
+head(lc$condition_number)
+head(lc$local_vif)
+```
+
+Large local condition numbers or VIF values indicate that some local
+coefficient estimates may be unstable because the weighted local design is
+nearly collinear.

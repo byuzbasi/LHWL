@@ -1,0 +1,14 @@
+.DS_Store
+.Rhistory
+.RData
+.Ruserdata
+Rplots.pdf
+*.Rcheck/
+*.tar.gz
+src/*.o
+src/*.so
+src/*.dll
+src/*.dylib
+vignettes/*.html
+tests/testthat/Rplots.pdf
+

@@ -1,0 +1,158 @@
+#include <R.h>
+#include <Rinternals.h>
+#include <R_ext/Rdynload.h>
+
+extern "C" {
+  SEXP _LHWR_lorentz_inner_cpp(SEXP zSEXP, SEXP wSEXP);
+  SEXP _LHWR_hyperbolic_distance_matrix_cpp(SEXP ZSEXP,
+                                                    SEXP WSEXP,
+                                                    SEXP symmetricSEXP,
+                                                    SEXP tolSEXP);
+  SEXP _LHWR_lorentz_knn_cpp(SEXP ZSEXP,
+                                     SEXP kSEXP,
+                                     SEXP includeSelfSEXP,
+                                     SEXP tolSEXP);
+  SEXP _LHWR_tangent_distance_matrix_cpp(SEXP ZSEXP,
+                                                 SEXP muSEXP,
+                                                 SEXP tolSEXP);
+  SEXP _LHWR_hgwr_fit_cpp(SEXP ySEXP,
+                                  SEXP XSEXP,
+                                  SEXP DSEXP,
+                                  SEXP bwSEXP,
+                                  SEXP kernelSEXP,
+                                  SEXP returnHatSEXP);
+  SEXP _LHWR_hgwr_fit_knn_cpp(SEXP ySEXP,
+                                      SEXP XSEXP,
+                                      SEXP ZSEXP,
+                                      SEXP kSEXP,
+                                      SEXP kernelSEXP,
+                                      SEXP returnHatSEXP,
+                                      SEXP tolSEXP,
+                                      SEXP nThreadsSEXP);
+  SEXP _LHWR_hgwr_cv_score_cpp(SEXP ySEXP,
+                                       SEXP XSEXP,
+                                       SEXP DSEXP,
+                                       SEXP bwSEXP,
+                                       SEXP kernelSEXP);
+  SEXP _LHWR_hgwr_f_tests_cpp(SEXP ySEXP,
+                                      SEXP XSEXP,
+                                      SEXP DSEXP,
+                                      SEXP bwSEXP,
+                                      SEXP kernelSEXP,
+                                      SEXP betaHatSEXP,
+                                      SEXP rssFullSEXP,
+                                      SEXP rssOlsSEXP,
+                                      SEXP dfOlsSEXP,
+                                      SEXP trSSEXP,
+                                      SEXP trStSSEXP);
+  SEXP _LHWR_hgwr_f_tests_knn_cpp(SEXP ySEXP,
+                                          SEXP XSEXP,
+                                          SEXP ZSEXP,
+                                          SEXP kSEXP,
+                                          SEXP kernelSEXP,
+                                          SEXP betaHatSEXP,
+                                          SEXP rssFullSEXP,
+                                          SEXP rssOlsSEXP,
+                                          SEXP dfOlsSEXP,
+                                          SEXP trSSEXP,
+                                          SEXP trStSSEXP,
+                                          SEXP tolSEXP);
+  SEXP _LHWR_hgwr_f_tests_knn_precomputed_cpp(SEXP ySEXP,
+                                                      SEXP XSEXP,
+                                                      SEXP indexSEXP,
+                                                      SEXP distanceSEXP,
+                                                      SEXP kernelSEXP,
+                                                      SEXP betaHatSEXP,
+                                                      SEXP rssFullSEXP,
+                                                      SEXP rssOlsSEXP,
+                                                      SEXP dfOlsSEXP,
+                                                      SEXP trSSEXP,
+                                                      SEXP trStSSEXP);
+  SEXP _LHWR_local_collinearity_knn_cpp(SEXP XSEXP,
+                                                SEXP indexSEXP,
+                                                SEXP distanceSEXP,
+                                                SEXP bandwidthSEXP,
+                                                SEXP kernelSEXP,
+                                                SEXP centerSEXP,
+                                                SEXP scaleSEXP,
+                                                SEXP nThreadsSEXP);
+  SEXP _LHWR_bw_hgwr_grid_cpp(SEXP ySEXP,
+                                      SEXP XSEXP,
+                                      SEXP DSEXP,
+                                      SEXP bwGridSEXP,
+                                      SEXP approachSEXP,
+                                      SEXP kernelSEXP,
+                                      SEXP adaptiveSEXP,
+                                      SEXP bandwidthTypeSEXP,
+                                      SEXP pilotKSEXP);
+  SEXP _LHWR_bw_hgwr_knn_grid_cpp(SEXP ySEXP,
+                                          SEXP XSEXP,
+                                          SEXP ZSEXP,
+                                          SEXP bwGridSEXP,
+                                          SEXP approachSEXP,
+                                          SEXP kernelSEXP,
+                                          SEXP tolSEXP,
+                                          SEXP nThreadsSEXP);
+  SEXP _LHWR_bw_hgwr_knn_golden_cpp(SEXP ySEXP,
+                                            SEXP XSEXP,
+                                            SEXP ZSEXP,
+                                            SEXP approachSEXP,
+                                            SEXP kernelSEXP,
+                                            SEXP lowerSEXP,
+                                            SEXP upperSEXP,
+                                            SEXP tolSEXP,
+                                            SEXP maxIterSEXP,
+                                            SEXP distTolSEXP,
+                                            SEXP nThreadsSEXP);
+  SEXP _LHWR_bw_hgwr_golden_cpp(SEXP ySEXP,
+                                        SEXP XSEXP,
+                                        SEXP DSEXP,
+                                        SEXP approachSEXP,
+                                        SEXP kernelSEXP,
+                                        SEXP adaptiveSEXP,
+                                        SEXP bandwidthTypeSEXP,
+                                        SEXP pilotKSEXP,
+                                        SEXP lowerSEXP,
+                                        SEXP upperSEXP,
+                                        SEXP tolSEXP,
+                                        SEXP maxIterSEXP);
+}
+
+static const R_CallMethodDef CallEntries[] = {
+  {"_LHWR_lorentz_inner_cpp",
+   (DL_FUNC) &_LHWR_lorentz_inner_cpp, 2},
+  {"_LHWR_hyperbolic_distance_matrix_cpp",
+   (DL_FUNC) &_LHWR_hyperbolic_distance_matrix_cpp, 4},
+  {"_LHWR_lorentz_knn_cpp",
+   (DL_FUNC) &_LHWR_lorentz_knn_cpp, 4},
+  {"_LHWR_tangent_distance_matrix_cpp",
+   (DL_FUNC) &_LHWR_tangent_distance_matrix_cpp, 3},
+  {"_LHWR_hgwr_fit_cpp",
+   (DL_FUNC) &_LHWR_hgwr_fit_cpp, 6},
+  {"_LHWR_hgwr_fit_knn_cpp",
+   (DL_FUNC) &_LHWR_hgwr_fit_knn_cpp, 8},
+  {"_LHWR_hgwr_cv_score_cpp",
+   (DL_FUNC) &_LHWR_hgwr_cv_score_cpp, 5},
+  {"_LHWR_hgwr_f_tests_cpp",
+   (DL_FUNC) &_LHWR_hgwr_f_tests_cpp, 11},
+  {"_LHWR_hgwr_f_tests_knn_cpp",
+   (DL_FUNC) &_LHWR_hgwr_f_tests_knn_cpp, 12},
+  {"_LHWR_hgwr_f_tests_knn_precomputed_cpp",
+   (DL_FUNC) &_LHWR_hgwr_f_tests_knn_precomputed_cpp, 11},
+  {"_LHWR_local_collinearity_knn_cpp",
+   (DL_FUNC) &_LHWR_local_collinearity_knn_cpp, 8},
+  {"_LHWR_bw_hgwr_grid_cpp",
+   (DL_FUNC) &_LHWR_bw_hgwr_grid_cpp, 9},
+  {"_LHWR_bw_hgwr_knn_grid_cpp",
+   (DL_FUNC) &_LHWR_bw_hgwr_knn_grid_cpp, 8},
+  {"_LHWR_bw_hgwr_knn_golden_cpp",
+   (DL_FUNC) &_LHWR_bw_hgwr_knn_golden_cpp, 11},
+  {"_LHWR_bw_hgwr_golden_cpp",
+   (DL_FUNC) &_LHWR_bw_hgwr_golden_cpp, 12},
+  {NULL, NULL, 0}
+};
+
+extern "C" void R_init_LHWR(DllInfo* dll) {
+  R_registerRoutines(dll, NULL, CallEntries, NULL, NULL);
+  R_useDynamicSymbols(dll, FALSE);
+}

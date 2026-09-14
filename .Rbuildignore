@@ -17,3 +17,13 @@
 ^tests/testthat/Rplots\.pdf$
 ^vignettes/.*\.html$
 ^.*\.DS_Store$
+^docs$
+^REVIEW_READY_CHECKLIST\.md$
+^validation_jcgs$
+^LHWL_.*[.]tar[.]gz$
+^CITATION[.]cff$
+^cran-comments[.]md$
+^_pkgdown[.]yml$
+^DOCUMENTATION[.]md$
+^tools/(update_documentation|build_documentation)[.]R$
+^pkgdown$

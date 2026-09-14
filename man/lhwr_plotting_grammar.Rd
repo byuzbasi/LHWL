@@ -17,4 +17,11 @@ Use the functions as a decision guide:
 \code{plot_lhwr_model()} for fitted coefficients and residuals,
 \code{plot_lhwr_inference()} for local p-values and significance,
 and \code{plot_lhwr_diagnostics()} for model diagnostic surfaces.
+
+See \code{vignette("lhwr-graphics", package = "LHWL")} for executable paired
+coefficient/significance maps, coefficient-colour plus significance-ring
+overlays, fitted/residual surfaces, LISA maps, network overlays and guarded
+PDF/PNG export. Helpers defined in that guide are vignette recipes, not new
+exported package functions. A default model projection is the Lorentz
+spatial-coordinate plane, not a Poincare or geographic map.
 }

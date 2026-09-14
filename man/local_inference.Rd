@@ -58,6 +58,11 @@ These p-values should be interpreted as local exploratory diagnostics. Because
 LHWR produces many local tests over dependent neighborhoods, multiplicity and
 local dependence matter. Use \code{adjust = "BH"}, \code{"holm"}, or \code{"bonferroni"}
 when the goal is to identify robust local patterns.
+
+Inference is conditional on the Lorentz-model coordinates and neighborhood
+weights stored in \code{object}. If the representation was estimated, the reported
+standard errors and p-values do not include first-stage representation
+uncertainty or uncertainty from bandwidth selection.
 }
 \examples{
 set.seed(5)

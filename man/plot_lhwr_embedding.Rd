@@ -9,6 +9,8 @@ plot_lhwr_embedding(
   values = NULL,
   groups = NULL,
   significant = NULL,
+  significance_adjusted = NULL,
+  significance_direction = NULL,
   labels = NULL,
   node_names = NULL,
   sizes = NULL,
@@ -33,12 +35,26 @@ Ignored when \code{values} or \code{significant} is supplied.}
 significant/non-significant using \code{significance_colors}; useful for local
 p-value maps.}
 
+\item{significance_adjusted}{Optional logical vector used together with
+\code{significant}. If supplied, local significance is classified as not
+significant, raw-only significant, or significant after adjustment. This is
+useful for comparing raw local p-values with multiplicity-adjusted
+p-values without drawing a second map.}
+
+\item{significance_direction}{Optional numeric vector used together with
+\code{significant}. Negative values are shown as negative significant, positive
+values as positive significant, and non-significant locations remain grey.
+This is useful for local coefficient maps where both significance and sign
+should be visible.}
+
 \item{labels}{Optional labels for points, for example country ISO3 codes.}
 
 \item{node_names}{Optional longer node names used in map summaries.}
 
 \item{sizes}{Optional nonnegative numeric vector for point sizes. A common
-choice is \code{log1p(total_trade)} or a node degree/strength measure.}
+choice is original total trade or a node degree/strength measure. The map
+already applies \code{log1p} before rescaling sizes; do not log-transform twice
+unless that additional visual transformation is explicitly intended.}
 
 \item{title}{Plot title. Use \code{NULL} to suppress the title, which is useful when the title is supplied in a manuscript caption.}
 

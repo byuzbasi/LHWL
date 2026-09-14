@@ -36,16 +36,36 @@ instead of recomputing nearest neighbors;
 A diagnostic test object.
 }
 \description{
-Compute GWR-style diagnostic F-tests for a fitted LHWR model. The
-diagnostics use the LHWR smoother induced by the model's kernel
-weights and distance geometry. They are optional because coefficient-specific
-F3 diagnostics require reconstructing local smoother rows and can be costly
-for large data sets.
+Compute Leung-type, moment-matched diagnostic F-tests adapted to a fitted
+LHWR model. The diagnostics use the LHWR smoother induced by the model's
+kernel weights and distance geometry. Their reference distributions use
+generally non-integer effective degrees of freedom. The reference laws are
+approximate and condition on the fitted geometry and selected bandwidth;
+they should not be read as post-selection confirmatory tests. They are
+optional because coefficient-specific F3 diagnostics require reconstructing
+local coefficient operators and can be costly for large data sets.
+}
+\details{
+F1 uses a lower-tail moment-matched F reference; F2 uses an upper-tail
+reference for improvement over the stored global OLS model. F3 uses an
+upper-tail reference for each coefficient's constancy across locations,
+not for that coefficient being zero at one location. The quadratic forms
+are generally dependent, so these are not exact nested-model ANOVA tests.
+Independent homoskedastic Gaussian errors and fixed stationary-model weights
+motivate the approximations; bandwidth selection, correlated errors and
+varying nuisance coefficients limit their interpretation.
+
+Required moments and reference degrees of freedom must be positive; do not
+interpret undefined p-values as zero. When supplying \code{ols_model}, verify the
+same response, predictor columns and observation order, not only row count.
+The default stored OLS model avoids a separate sample/formula choice.
+See \code{vignette("lhwr-diagnostics-and-tuning", package = "LHWL")} for the
+statistics, reference degrees of freedom and executable reporting tables.
 }
 \examples{
 # Example 1: globally stationary coefficients.
-# The diagnostic tests should usually not reject stationarity here because
-# the response does not depend on the Lorentz locations.
+# The diagnostics should usually not reject global adequacy or local
+# coefficient constancy because the response does not depend on location.
 set.seed(1)
 H <- simulate_H2(80, r_max = 3)
 Z <- H$Z
@@ -67,7 +87,8 @@ fit_global$Ftests
 
 # Example 2: hyperbolic coefficient heterogeneity.
 # The coefficients are generated from localized bumps defined by
-# Lorentz-hyperbolic distances, so F-tests may detect nonstationarity.
+# Lorentz-hyperbolic distances, so the diagnostics may detect departures
+# from the global model and coefficient-specific local variability.
 set.seed(2)
 H <- simulate_H2(80, r_max = 3, uniform_area = TRUE)
 Z <- H$Z

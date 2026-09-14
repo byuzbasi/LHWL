@@ -27,7 +27,9 @@ A data frame with 2262 rows and 18 columns:
 }
 }
 \source{
-World Bank World Development Indicators API, downloaded July 2026.
+\href{https://datacatalog.worldbank.org/search/dataset/0037712/world-development-indicators}{World Bank World Development Indicators},
+downloaded through the API in July 2026 and distributed under the
+\href{https://creativecommons.org/licenses/by/4.0/}{Creative Commons Attribution 4.0 International license}.
 Indicators include \code{NY.GDP.MKTP.KD.ZG}, \code{NY.GDP.PCAP.KD},
 \code{NE.TRD.GNFS.ZS}, \code{BX.KLT.DINV.WD.GD.ZS}, \code{FP.CPI.TOTL.ZG},
 \code{SP.POP.TOTL}, \code{SL.UEM.TOTL.ZS}, \code{IT.NET.USER.ZS}, and \code{SE.SEC.ENRR}.
@@ -45,17 +47,25 @@ demo/template data set rather than as a definitive empirical application.
 The response and covariates are real-valued macroeconomic variables. The
 columns \code{z0_lorentz}, \code{z1_lorentz}, and \code{z2_lorentz} define a
 Lorentz-hyperboloid representation constructed from a two-component economic
-feature map. Specifically,
+feature map. The frozen preprocessing constants are retained explicitly:
+
+The index \eqn{i} identifies a country-year row. \eqn{\mathrm{GDPpc}_i}
+denotes positive constant-price GDP per capita and its natural logarithm is
+stored as \code{log_gdp_pc_const}. The first feature centers and scales that log:
 
 \deqn{
-z_{i1} = \operatorname{standardize}(\log(\mathrm{GDPpc}_i)),
+z_{i1} = \{\log(\mathrm{GDPpc}_i)-8.8071974413888245\}/1.4524958189486741,
 }
+
+The second feature centers and scales trade openness, measured as a percent
+of GDP in \code{trade_open}, using its separate frozen constants:
 
 \deqn{
-z_{i2} = \operatorname{standardize}(\mathrm{trade\ openness}_i),
+z_{i2} = (\mathrm{trade\ openness}_i-91.8784599801564923)/58.6130974219034400,
 }
 
-and
+Both spatial features are dimensionless. The positive time coordinate is
+then chosen to impose the unit-hyperboloid constraint:
 
 \deqn{
 z_{i0} = \sqrt{1 + z_{i1}^2 + z_{i2}^2}.
@@ -64,8 +74,10 @@ z_{i0} = \sqrt{1 + z_{i1}^2 + z_{i2}^2}.
 Hence each row \verb{Z_i = (z0_lorentz, z1_lorentz, z2_lorentz)} lies on the
 upper Lorentz hyperboloid. The coordinates satisfy
 \code{-z0_lorentz^2 + z1_lorentz^2 + z2_lorentz^2 = -1} up to floating-point
-tolerance. They are not longitude-latitude coordinates; they encode a latent
-economic neighborhood geometry based on GDP per capita and trade openness.
+tolerance. The location and scale constants were calculated on the
+preprocessing reference sample before retaining this analysis panel. The
+coordinates are not longitude-latitude coordinates; they encode an economic
+neighborhood geometry based on GDP per capita and trade openness.
 }
 \examples{
 data(wdi_lhwr)
@@ -75,31 +87,29 @@ dat <- subset(wdi_lhwr, year == max(year))
 Z <- as.matrix(dat[, c("z0_lorentz", "z1_lorentz", "z2_lorentz")])
 check_hyperboloid(Z, stop_on_fail = TRUE)
 
-# The same construction can be reproduced from the two raw economic features.
-X_embed <- dat[, c("log_gdp_pc_const", "trade_open")]
-Z_rebuilt <- make_lhwr_Z_features(X_embed, scale = TRUE)
+# Reproduce the stored coordinates with the frozen preprocessing constants.
+z1 <- (dat$log_gdp_pc_const - 8.8071974413888245) / 1.4524958189486741
+z2 <- (dat$trade_open - 91.8784599801564923) / 58.6130974219034400
+Z_rebuilt <- cbind(sqrt(1 + z1^2 + z2^2), z1, z2)
 max(abs(Z - Z_rebuilt))
 
 # Keep examples lightweight; use a modest grid.
 fit_data <- data.frame(
   gdp_growth = dat$gdp_growth,
-  inflation = as.numeric(scale(dat$inflation)),
-  fdi_gdp = as.numeric(scale(dat$fdi_gdp)),
   unemployment = as.numeric(scale(dat$unemployment)),
-  internet_users = as.numeric(scale(dat$internet_users)),
-  log_population = as.numeric(scale(dat$log_population))
+  internet_users = as.numeric(scale(dat$internet_users))
 )
 
 bw <- bw.lhwr(
-  gdp_growth ~ inflation + fdi_gdp + unemployment + internet_users + log_population,
+  gdp_growth ~ unemployment + internet_users,
   data = fit_data,
   Z = Z,
   approach = "AICc",
-  bw_grid = seq(40, 100, by = 20),
+  bw_grid = c(40, 60),
   engine = "knn"
 )
 fit <- lhwr(
-  gdp_growth ~ inflation + fdi_gdp + unemployment + internet_users + log_population,
+  gdp_growth ~ unemployment + internet_users,
   data = fit_data,
   Z = Z,
   bw = bw$bw,

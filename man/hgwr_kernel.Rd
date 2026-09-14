@@ -22,6 +22,15 @@ Numeric weights with the same shape as \code{d}.
 Dispatch to one of the supported kernel functions and return the associated
 weights.
 }
+\details{
+Kernel shape and bandwidth have different roles. Gaussian and exponential
+kernels have noncompact support; bisquare, tricube and boxcar are zero at
+and beyond the bandwidth. The exact kNN fitting engine supports only those
+three compact kernels. The Moran/LISA direct kernel choices form a smaller
+set; an explicit diagnostic weight matrix can be supplied separately.
+See \code{vignette("lhwr-diagnostics-and-tuning", package = "LHWL")} for all
+five formulas, overlaid weight curves and supported option combinations.
+}
 \examples{
 d <- c(0, 0.5, 1, 2)
 hgwr_kernel(d, bw = 1, kernel = "bisquare")

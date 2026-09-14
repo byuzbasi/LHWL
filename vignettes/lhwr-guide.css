@@ -1,0 +1,7 @@
+/* Keep paired research plots readable in installed HTML vignettes. */
+img { max-width: 100%; height: auto; }
+.math.display { display: block; max-width: 100%; overflow-x: auto; }
+@media (max-width: 767px) {
+  img[width="49%"] { width: 100%; display: block; }
+  table { display: block; max-width: 100%; overflow-x: auto; }
+}

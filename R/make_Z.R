@@ -32,7 +32,8 @@
 #'   when `method = "network"`.
 #' @param Z An `n x 3` Lorentz hyperboloid coordinate matrix to validate.
 #' @param scale If `TRUE`, standardize the two input components before
-#'   constructing `Z`.
+#'   constructing `Z`. A constant component has undefined sample standard
+#'   deviation; it is mapped to zero with an explicit warning.
 #' @param A An `n x n` numeric adjacency, similarity, or relation matrix.
 #' @param method Construction or network embedding method. In `make_lhwr_Z()`,
 #'   use `"features"` for a two-component feature map or `"network"` for a
@@ -98,8 +99,28 @@ make_lhwr_Z_features <- function(X, scale = TRUE, tol = 1e-6) {
   X <- lhwr_validate_two_component_input(X, name = "X")
   feature_names <- colnames(X)
   if (isTRUE(scale)) {
-    X <- scale(X)
-    X[!is.finite(X)] <- 0
+    centers <- colMeans(X)
+    scales <- apply(X, 2L, stats::sd)
+    constant <- !is.finite(scales) | scales == 0
+    if (any(constant)) {
+      labels <- feature_names %||% paste0("component ", seq_len(ncol(X)))
+      warning(
+        "Constant feature component(s) mapped to zero after centering: ",
+        paste(labels[constant], collapse = ", "),
+        ".",
+        call. = FALSE
+      )
+    }
+    X <- sweep(X, 2L, centers, FUN = "-")
+    if (any(!constant)) {
+      X[, !constant] <- sweep(
+        X[, !constant, drop = FALSE],
+        2L,
+        scales[!constant],
+        FUN = "/"
+      )
+    }
+    X[, constant] <- 0
   } else if (!identical(scale, FALSE)) {
     stop("`scale` must be TRUE or FALSE.", call. = FALSE)
   }

@@ -23,8 +23,8 @@ lhwr_report(
 \arguments{
 \item{object}{An LHWR model object returned by \code{\link[=lhwr]{lhwr()}}.}
 
-\item{include_global}{Logical. If \code{TRUE}, include the global OLS baseline
-stored in \code{object$lm} when available.}
+\item{include_global}{Logical. If \code{TRUE}, include the global linear or
+logistic baseline stored in \code{object$lm} when available.}
 
 \item{include_inference}{Logical. If \code{TRUE}, include exploratory local
 coefficient inference when available or computable from the fit.}
@@ -63,9 +63,9 @@ tables printed in the report.
 \description{
 Print a structured report for an LHWR fitted model. The report is designed
 for applied analysis: it combines the model call, calibration settings,
-global OLS baseline, LHWR diagnostics, local coefficient summaries, optional
-local inference, optional diagnostic F-tests, and optional residual or
-collinearity diagnostics.
+a global Gaussian or binomial baseline, LHWR diagnostics, local coefficient
+summaries, optional local inference, optional diagnostic F-tests, and
+optional residual or collinearity diagnostics.
 }
 \details{
 The function does not refit the model. Local inference is computed only from

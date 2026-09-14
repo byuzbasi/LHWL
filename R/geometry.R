@@ -33,7 +33,9 @@ lorentz_norm <- function(z) {
 
 #' Hyperbolic Distance on the Lorentz Hyperboloid
 #'
-#' Compute `dH(z,w) = acosh(-<z,w>_L)` with numerical clipping near one.
+#' Compute `dH(z,w) = acosh(-<z,w>_L)`. The compiled implementation uses an
+#' equivalent stable hyperbolic identity when the direct Lorentz contraction
+#' is susceptible to cancellation at large radial coordinates.
 #'
 #' @param z A numeric vector of length 3 or an `n x 3` matrix.
 #' @param w A numeric vector of length 3 or an `n x 3` matrix.
@@ -55,25 +57,7 @@ hyperbolic_distance <- function(z, w, check = TRUE, tol = 1e-6) {
     check_hyperboloid(w, tol = tol, stop_on_fail = TRUE)
   }
   
-  arg <- -lorentz_inner(z, w)
-  out <- rep(NA_real_, length(arg))
-  stable <- arg >= 1
-  out[stable] <- acosh(arg[stable])
-  
-  unstable <- which(!stable)
-  if (length(unstable)) {
-    out[unstable] <- poincare_distance_from_lorentz(
-      z[unstable, , drop = FALSE],
-      w[unstable, , drop = FALSE],
-      tol = tol
-    )
-  }
-  
-  if (any(!is.finite(out), na.rm = TRUE)) {
-    stop("Invalid Lorentz distance: acosh argument is below 1.", call. = FALSE)
-  }
-  
-  out
+  .hyperbolic_distance_cpp(z, w, tol = tol)
 }
 
 #' Hyperbolic Distance Matrix
@@ -159,18 +143,4 @@ as_lorentz_matrix <- function(x, name) {
   
   storage.mode(x) <- "double"
   x
-}
-
-poincare_distance_from_lorentz <- function(z, w, tol = 1e-6) {
-  u <- z[, 2:3, drop = FALSE] / (z[, 1] + 1)
-  v <- w[, 2:3, drop = FALSE] / (w[, 1] + 1)
-  du2 <- rowSums((u - v)^2)
-  nu <- rowSums(u^2)
-  nv <- rowSums(v^2)
-  den <- (1 - nu) * (1 - nv)
-  
-  arg <- 1 + 2 * du2 / den
-  arg[arg < 1 & arg > 1 - sqrt(tol)] <- 1
-  arg[!is.finite(arg) | den <= 0] <- NA_real_
-  acosh(arg)
 }

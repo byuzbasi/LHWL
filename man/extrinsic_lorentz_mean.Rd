@@ -17,6 +17,17 @@ Compute the Euclidean coordinate mean of Lorentz points and project it back
 to the upper sheet of the hyperboloid. This is used as the default reference
 point for tangent-space approximations.
 }
+\details{
+For valid upper-sheet points, let \eqn{m = n^{-1}\sum_i z_i} be the ambient
+coordinate mean of the \eqn{n} input rows and let \eqn{\langle\cdot,\cdot\rangle_L}
+denote \code{\link[=lorentz_inner]{lorentz_inner()}}. The reference is
+\deqn{\mu = m / \sqrt{-\langle m,m\rangle_L}.}
+This normalization puts the mean on the unit hyperboloid; it is not the
+intrinsic Frechet mean. The implementation evaluates the normalization
+stably and reconstructs the positive time coordinate. A zero spatial mean
+gives \eqn{\mu=(1,0,0)}. Estimate the reference from training locations and
+reuse it when mapping new locations.
+}
 \examples{
 H <- simulate_H2(10, r_max = 2)
 mu <- extrinsic_lorentz_mean(H$Z)

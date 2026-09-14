@@ -1,0 +1,87 @@
+template:
+  bootstrap: 5
+  math-rendering: mathjax
+  bslib:
+    primary: "#176B72"
+    link-color: "#146269"
+    border-radius: 0.3rem
+home:
+  title: Lorentz Hyperbolic Weighted Learning
+  description: >
+    Local regression and focal variable selection in a Lorentz-hyperbolic
+    representation. LHWR is the original foundation; LHWPR is its penalized
+    extension.
+navbar:
+  structure:
+    left: [intro, articles, reference, news]
+    right: [search]
+  components:
+    intro:
+      text: Get started
+      href: articles/lorentz-hgwr-introduction.html
+articles:
+- title: Tutorials
+  navbar: Tutorials
+  contents:
+  - lorentz-hgwr-introduction
+  - lhwr-diagnostics-and-tuning
+  - lhwr-graphics
+  - lhwpr-lasso
+reference:
+- title: Fit and tune local models
+  desc: LHWR is the unpenalized foundation; LHWPR adds focal regularization.
+  contents:
+  - LHWL-package
+  - lhwr
+  - bw.lhwr
+  - lhwpr
+  - tune.lhwpr
+  - lhwpr_control
+  - plot.tune.lhwpr
+- title: Coordinates and geometry
+  contents:
+  - make_lhwr_Z
+  - prepare_lorentz_coordinates
+  - simulate_H2
+  - lorentz_inner
+  - lorentz_norm
+  - hyperbolic_distance
+  - hyperbolic_distance_matrix
+  - lorentz_knn
+  - check_hyperboloid
+  - normalize_to_H2
+  - project_to_H2
+  - poincare_to_lorentz
+  - extrinsic_lorentz_mean
+  - lorentz_log_map
+  - tangent_coordinates
+  - tangent_distance_matrix
+- title: Extractors, diagnostics and graphics
+  contents:
+  - fitted.lhwr
+  - summary.lhwr
+  - RSS.lhwr
+  - CV.lhwr
+  - AICc.lhwr
+  - lhwr_report
+  - local_collinearity
+  - local_inference
+  - diagnostic_tests
+  - moran.lhwr
+  - local_moran.lhwr
+  - lhwr_plotting_grammar
+  - lhwr_plot_control
+  - starts_with("plot_lhwr")
+  - plot_lhwpr_surface
+  - plot.lhwr
+  - plot.hgwr_local_moran
+  - caption_lhwr_map
+  - summary.lhwr_poincare_map
+- title: Data, kernels and compatibility interfaces
+  contents:
+  - wdi_lhwr
+  - starts_with("hgwr")
+  - bw.hgwr
+  - weighted_cor
+  - weighted_r2
+  - safe_condition_number

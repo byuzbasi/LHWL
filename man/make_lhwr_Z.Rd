@@ -50,7 +50,8 @@ make_lorentz_Z(x, method = c("features", "network"), ...)
 representation of the observations.}
 
 \item{scale}{If \code{TRUE}, standardize the two input components before
-constructing \code{Z}.}
+constructing \code{Z}. A constant component has undefined sample standard
+deviation; it is mapped to zero with an explicit warning.}
 
 \item{A}{An \verb{n x n} numeric adjacency, similarity, or relation matrix.}
 

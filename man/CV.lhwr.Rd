@@ -19,3 +19,9 @@ computed for \code{object}; otherwise \code{NA_real_}.
 \description{
 LHWR Cross-Validation Score
 }
+\details{
+Gaussian CV is a sum of squared leave-one-out errors; binomial tuning uses
+Bernoulli log loss. The representation and candidate radii are held fixed
+for internal bandwidth scoring. This extractor does not run cross-validation
+and a stored score is not an independent outer evaluation after tuning.
+}

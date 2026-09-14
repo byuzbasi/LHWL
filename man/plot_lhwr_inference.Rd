@@ -33,6 +33,9 @@ plot_lhwr_inference(
 
 \item{inference_df}{Degrees-of-freedom rule.}
 
+\item{show_info}{Logical; draw the explanatory information box in the
+Poincare view.}
+
 \item{...}{Additional arguments passed to the plotting function.}
 }
 \value{

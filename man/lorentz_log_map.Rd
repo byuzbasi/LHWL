@@ -12,13 +12,26 @@ lorentz_log_map(Z, mu = NULL, tol = 1e-10)
 \item{mu}{Reference point on the Lorentz hyperboloid. If \code{NULL}, the
 normalized extrinsic mean is used.}
 
-\item{tol}{Numerical tolerance for zero-distance points.}
+\item{tol}{Intrinsic-distance threshold for setting a log-map row to zero;
+the default is \code{1e-10} in unit-curvature distance units.}
 }
 \value{
 An \verb{n x 3} matrix of tangent vectors in \verb{T_mu H^2}.
 }
 \description{
 Map points on the Lorentz hyperboloid to the tangent space at \code{mu}.
+}
+\details{
+For unit-hyperboloid points \eqn{z} and \eqn{\mu}, define
+\eqn{a=-\langle\mu,z\rangle_L} and the intrinsic distance
+\eqn{d=\operatorname{acosh}(a)} using \code{\link[=lorentz_inner]{lorentz_inner()}} and
+\code{\link[=hyperbolic_distance]{hyperbolic_distance()}}. The logarithmic map is
+\deqn{\log_\mu(z)=\frac{d}{\sinh(d)}(z-a\mu),\qquad d>0.}
+The result is a tangent vector orthogonal to \eqn{\mu} under the Lorentz
+inner product. At \eqn{z=\mu} the continuous extension is the zero vector.
+Numerically, \code{tol} is compared with the distance \eqn{d}, not with
+\eqn{a-1}: rows with \eqn{d\leq\mathrm{tol}} are set to zero. Other rows
+use stable, algebraically equivalent coordinate formulas.
 }
 \examples{
 H <- simulate_H2(5, r_max = 2)

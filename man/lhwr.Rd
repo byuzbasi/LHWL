@@ -19,7 +19,9 @@ lhwr(
   engine = c("dense", "knn"),
   n_threads = 1L,
   diagnostics = c("full", "aicc", "none"),
-  f_tests = FALSE
+  f_tests = FALSE,
+  family = c("gaussian", "binomial"),
+  control = stats::glm.control(maxit = 100L)
 )
 }
 \arguments{
@@ -84,7 +86,16 @@ values, residuals, local coefficients, RSS, and global R-squared.}
 
 \item{f_tests}{Logical. If \code{TRUE}, compute LHWR diagnostic F-tests
 after model fitting. The default \code{FALSE} avoids the additional smoother
-reconstruction cost, which can be substantial for large data sets.}
+reconstruction cost, which can be substantial for large data sets.
+Diagnostic F-tests are available only for Gaussian LHWR.}
+
+\item{family}{Response family. \code{"gaussian"} fits local weighted
+least-squares regressions and \code{"binomial"} fits local weighted logistic
+regressions. The default preserves the original Gaussian LHWR behavior.}
+
+\item{control}{Iteration controls for binomial LHWR, created by
+\code{\link[stats:glm.control]{stats::glm.control()}}. \code{epsilon}, \code{maxit}, and \code{trace} are used by the
+native local IRLS solver. Ignored for Gaussian LHWR.}
 }
 \value{
 An object of class \code{"lhwr"}, a list containing model arguments,
@@ -93,13 +104,23 @@ diagnostic summaries, the global linear model fit, local coefficient table
 values, residuals, distance matrix, selected geometry label, effective
 bandwidth vector, hat-matrix diagonal, local condition numbers, local
 effective sample sizes, local counts of positive kernel weights, timing
-information, and the original function call.
+information, family-specific convergence information, and the original
+function call. For binomial models, fitted values are response
+probabilities and residuals are response residuals \code{y - p}.
 }
 \description{
-Estimate location-varying regression coefficients for observations located
-on the Lorentz hyperboloid. At each focal point, the function fits a weighted
-linear regression using kernel weights derived from either intrinsic Lorentz
-distances or tangent-space distances.
+Estimate location-varying Gaussian or binomial regression coefficients for
+observations located on the Lorentz hyperboloid. At each focal point, the
+function fits an unpenalized weighted linear or logistic regression using
+kernel weights derived from either intrinsic Lorentz distances or
+tangent-space distances.
+}
+\details{
+Standard errors, local test statistics, and fitted-model diagnostics are
+conditional on the supplied \code{Z} matrix and the fitted neighborhood system.
+If \code{Z} is estimated from data, these quantities do not propagate
+first-stage representation uncertainty. They also do not include
+uncertainty from data-driven bandwidth selection.
 }
 \examples{
 set.seed(20260615)
@@ -159,4 +180,16 @@ fit_tangent <- lhwr(
   geometry = "tangent"
 )
 fit_tangent$geometry
+
+probability <- plogis(-0.4 + 1.1 * x1 - 0.7 * x2)
+dat$event <- rbinom(n, 1, probability)
+fit_binomial <- lhwr(
+  event ~ x1 + x2,
+  data = dat,
+  Z = Z,
+  bw = 40,
+  family = "binomial",
+  diagnostics = "full"
+)
+head(fitted(fit_binomial))
 }

@@ -3,6 +3,8 @@
 #include <queue>
 #include <vector>
 
+#include "lorentz_distance.h"
+
 using namespace Rcpp;
 
 namespace {
@@ -12,44 +14,20 @@ double lorentz_inner_one(const NumericMatrix& z, int i,
   return -z(i, 0) * w(j, 0) + z(i, 1) * w(j, 1) + z(i, 2) * w(j, 2);
 }
 
-double poincare_distance_one(const NumericMatrix& z, int i,
-                             const NumericMatrix& w, int j,
-                             double tol) {
-  const double uz0 = z(i, 1) / (z(i, 0) + 1.0);
-  const double uz1 = z(i, 2) / (z(i, 0) + 1.0);
-  const double vw0 = w(j, 1) / (w(j, 0) + 1.0);
-  const double vw1 = w(j, 2) / (w(j, 0) + 1.0);
-  const double du0 = uz0 - vw0;
-  const double du1 = uz1 - vw1;
-  const double du2 = du0 * du0 + du1 * du1;
-  const double nu = uz0 * uz0 + uz1 * uz1;
-  const double nv = vw0 * vw0 + vw1 * vw1;
-  const double den = (1.0 - nu) * (1.0 - nv);
-  
-  if (!R_finite(den) || den <= 0.0) return NA_REAL;
-  double arg = 1.0 + 2.0 * du2 / den;
-  if (arg < 1.0 && arg > 1.0 - std::sqrt(tol)) arg = 1.0;
-  if (!R_finite(arg) || arg < 1.0) return NA_REAL;
-  return std::acosh(arg);
-}
-
 double hyperbolic_distance_one(const NumericMatrix& z, int i,
                                const NumericMatrix& w, int j,
                                double tol) {
-  double arg = -lorentz_inner_one(z, i, w, j);
-  if (arg >= 1.0) return std::acosh(arg);
-  if (arg > 1.0 - std::sqrt(tol)) return 0.0;
-  return poincare_distance_one(z, i, w, j, tol);
+  static_cast<void>(tol);
+  return lhwl_lorentz_distance(
+    z(i, 0), z(i, 1), z(i, 2),
+    w(j, 0), w(j, 1), w(j, 2)
+  );
 }
 
 void check_three_columns(const NumericMatrix& x, const char* name) {
   if (x.ncol() != 3) {
     stop("`%s` must have exactly 3 columns.", name);
   }
-}
-
-double lorentz_norm_vec(const double x0, const double x1, const double x2) {
-  return -x0 * x0 + x1 * x1 + x2 * x2;
 }
 
 struct CandidateLess {
@@ -87,7 +65,7 @@ void update_heap(std::priority_queue<
 
 } // namespace
 
-extern "C" SEXP _LHWR_lorentz_inner_cpp(SEXP zSEXP, SEXP wSEXP) {
+extern "C" SEXP _LHWL_lorentz_inner_cpp(SEXP zSEXP, SEXP wSEXP) {
   BEGIN_RCPP
   NumericMatrix z(zSEXP);
   NumericMatrix w(wSEXP);
@@ -111,7 +89,37 @@ extern "C" SEXP _LHWR_lorentz_inner_cpp(SEXP zSEXP, SEXP wSEXP) {
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_hyperbolic_distance_matrix_cpp(SEXP ZSEXP,
+extern "C" SEXP _LHWL_hyperbolic_distance_cpp(SEXP zSEXP,
+                                                       SEXP wSEXP,
+                                                       SEXP tolSEXP) {
+  BEGIN_RCPP
+  NumericMatrix z(zSEXP);
+  NumericMatrix w(wSEXP);
+  const double tol = as<double>(tolSEXP);
+  check_three_columns(z, "z");
+  check_three_columns(w, "w");
+
+  const int nz = z.nrow();
+  const int nw = w.nrow();
+  if (nz != nw && nz != 1 && nw != 1) {
+    stop("`z` and `w` must have compatible row counts.");
+  }
+
+  const int n = std::max(nz, nw);
+  NumericVector out(n);
+  for (int i = 0; i < n; ++i) {
+    const int iz = nz == 1 ? 0 : i;
+    const int iw = nw == 1 ? 0 : i;
+    out[i] = hyperbolic_distance_one(z, iz, w, iw, tol);
+    if (!R_finite(out[i])) {
+      stop("Invalid Lorentz-model coordinates for distance calculation.");
+    }
+  }
+  return out;
+  END_RCPP
+}
+
+extern "C" SEXP _LHWL_hyperbolic_distance_matrix_cpp(SEXP ZSEXP,
                                                              SEXP WSEXP,
                                                              SEXP symmetricSEXP,
                                                              SEXP tolSEXP) {
@@ -156,7 +164,7 @@ extern "C" SEXP _LHWR_hyperbolic_distance_matrix_cpp(SEXP ZSEXP,
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_lorentz_knn_cpp(SEXP ZSEXP,
+extern "C" SEXP _LHWL_lorentz_knn_cpp(SEXP ZSEXP,
                                               SEXP kSEXP,
                                               SEXP includeSelfSEXP,
                                               SEXP tolSEXP) {
@@ -234,7 +242,7 @@ extern "C" SEXP _LHWR_lorentz_knn_cpp(SEXP ZSEXP,
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_tangent_distance_matrix_cpp(SEXP ZSEXP,
+extern "C" SEXP _LHWL_tangent_distance_matrix_cpp(SEXP ZSEXP,
                                                           SEXP muSEXP,
                                                           SEXP tolSEXP) {
   BEGIN_RCPP
@@ -248,47 +256,62 @@ extern "C" SEXP _LHWR_tangent_distance_matrix_cpp(SEXP ZSEXP,
   }
   
   const int n = Z.nrow();
-  NumericMatrix V(n, 3);
+  NumericMatrix Q(n, 2);
   NumericMatrix D(n, n);
   
   const double mu0 = muMat(0, 0);
   const double mu1 = muMat(0, 1);
   const double mu2 = muMat(0, 2);
+  const double muSpatial = std::hypot(mu1, mu2);
+  const double muRadial = std::asinh(muSpatial);
+  const double muTime = std::hypot(1.0, muSpatial);
+  const double muDirection1 = muSpatial > 0.0 ? mu1 / muSpatial : 1.0;
+  const double muDirection2 = muSpatial > 0.0 ? mu2 / muSpatial : 0.0;
   
   for (int i = 0; i < n; ++i) {
-    const double ip = -Z(i, 0) * mu0 + Z(i, 1) * mu1 + Z(i, 2) * mu2;
-    double arg = -ip;
-    if (arg < 1.0 && arg > 1.0 - std::sqrt(tol)) arg = 1.0;
-    if (!R_finite(arg) || arg < 1.0) {
+    const double d = lhwl_lorentz_distance(
+      Z(i, 0), Z(i, 1), Z(i, 2), mu0, mu1, mu2
+    );
+    if (!R_finite(d)) {
       stop("Invalid Lorentz log-map argument.");
     }
-    
-    const double d = std::acosh(arg);
+
     if (d <= tol) {
-      V(i, 0) = 0.0;
-      V(i, 1) = 0.0;
-      V(i, 2) = 0.0;
+      Q(i, 0) = 0.0;
+      Q(i, 1) = 0.0;
     } else {
-      const double coef = d / std::sinh(d);
-      const double cd = std::cosh(d);
-      V(i, 0) = coef * (Z(i, 0) - cd * mu0);
-      V(i, 1) = coef * (Z(i, 1) - cd * mu1);
-      V(i, 2) = coef * (Z(i, 2) - cd * mu2);
+      const double spatial = std::hypot(Z(i, 1), Z(i, 2));
+      const double radial = std::asinh(spatial);
+      const double direction1 = spatial > 0.0 ? Z(i, 1) / spatial : 0.0;
+      const double direction2 = spatial > 0.0 ? Z(i, 2) / spatial : 0.0;
+      double radialComponent;
+      double angularComponent;
+      if (muSpatial > 0.0) {
+        const double du1 = direction1 - muDirection1;
+        const double du2 = direction2 - muDirection2;
+        const double directionGap = 0.5 * (du1 * du1 + du2 * du2);
+        radialComponent = std::sinh(radial - muRadial) -
+          spatial * muTime * directionGap;
+        angularComponent = -Z(i, 1) * muDirection2 +
+          Z(i, 2) * muDirection1;
+      } else {
+        radialComponent = Z(i, 1);
+        angularComponent = Z(i, 2);
+      }
+      const double coef = d < 350.0 ?
+        d / std::sinh(d) :
+        2.0 * d * std::exp(-d) / (1.0 - std::exp(-2.0 * d));
+      Q(i, 0) = coef * radialComponent;
+      Q(i, 1) = coef * angularComponent;
     }
   }
   
   for (int i = 0; i < n; ++i) {
     D(i, i) = 0.0;
     for (int j = i + 1; j < n; ++j) {
-      const double d0 = V(i, 0) - V(j, 0);
-      const double d1 = V(i, 1) - V(j, 1);
-      const double d2 = V(i, 2) - V(j, 2);
-      double norm = lorentz_norm_vec(d0, d1, d2);
-      if (norm < 0.0 && norm > -std::sqrt(tol)) norm = 0.0;
-      if (!R_finite(norm) || norm < 0.0) {
-        stop("Invalid tangent-space distance under the induced Lorentz metric.");
-      }
-      const double dij = std::sqrt(norm);
+      const double d1 = Q(i, 0) - Q(j, 0);
+      const double d2 = Q(i, 1) - Q(j, 1);
+      const double dij = std::hypot(d1, d2);
       D(i, j) = dij;
       D(j, i) = dij;
     }

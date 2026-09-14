@@ -5,8 +5,20 @@
 #' @return A single numeric value containing the corrected Akaike information
 #'   criterion. Smaller values indicate a better fitted model under this
 #'   criterion.
+#' @details
+#' This extractor does not refit or select a model. AICc requires hat-matrix
+#' diagnostics; a nonpositive n - tr(S) - 2 denominator produces infinity.
+#' Gaussian AIC and BIC are also stored in `object$LHWR.diagnostic`, but
+#' `bw.lhwr()` directly selects only by AICc or CV. See
+#' `vignette("lhwr-diagnostics-and-tuning", package = "LHWL")` for formulas.
 #' @export
 AICc.lhwr <- function(object) {
+  if (identical(object$family %||% object$LHWR.arguments$family, "binomial")) {
+    stop(
+      "AICc is not currently defined for binomial LHWR; use binomial leave-one-out deviance through `bw.lhwr(..., approach = \"CV\")`.",
+      call. = FALSE
+    )
+  }
   if (!is.null(object$LHWR.diagnostic$AICc)) {
     return(object$LHWR.diagnostic$AICc)
   }
@@ -18,6 +30,11 @@ AICc.lhwr <- function(object) {
 #' @param object An LHWR bandwidth or model object.
 #' @return A single numeric leave-one-out cross-validation score if it was
 #'   computed for `object`; otherwise `NA_real_`.
+#' @details
+#' Gaussian CV is a sum of squared leave-one-out errors; binomial tuning uses
+#' Bernoulli log loss. The representation and candidate radii are held fixed
+#' for internal bandwidth scoring. This extractor does not run cross-validation
+#' and a stored score is not an independent outer evaluation after tuning.
 #' @export
 CV.lhwr <- function(object) {
   if (!is.null(object$CV)) return(object$CV)
@@ -32,6 +49,12 @@ CV.lhwr <- function(object) {
 #'   values and observed response.
 #' @export
 RSS.lhwr <- function(object) {
+  if (identical(object$family %||% object$LHWR.arguments$family, "binomial")) {
+    stop(
+      "Residual sum of squares is a Gaussian LHWR diagnostic; use binomial deviance or Brier score instead.",
+      call. = FALSE
+    )
+  }
   if (!is.null(object$LHWR.diagnostic$RSS.gw)) {
     return(object$LHWR.diagnostic$RSS.gw)
   }
@@ -172,6 +195,7 @@ summary.lhwr <- function(object, ...) {
   ans <- list(
     call = object$this.call,
     arguments = object$LHWR.arguments,
+    family = object$family %||% object$LHWR.arguments$family %||% "gaussian",
     diagnostic = object$LHWR.diagnostic,
     coefficients = coef_summary
   )
@@ -191,7 +215,14 @@ print.lhwr <- function(x, ...) {
   
   hgwr_rule()
   cat(" LHWR model fit\n")
-  cat(" Local linear regression with geometry-aware kernel weights\n")
+  family <- x$family %||% args$family %||% "gaussian"
+  cat(
+    if (family == "binomial") {
+      " Local logistic regression with geometry-aware kernel weights\n"
+    } else {
+      " Local linear regression with geometry-aware kernel weights\n"
+    }
+  )
   hgwr_rule()
   cat("Call:\n")
   print(x$this.call)
@@ -199,6 +230,7 @@ print.lhwr <- function(x, ...) {
   info <- data.frame(
     Setting = c(
       "Model",
+      "Family",
       "Geometry",
       "Distance",
       "Kernel",
@@ -211,6 +243,7 @@ print.lhwr <- function(x, ...) {
     ),
     Value = c(
       "Lorentz Hyperbolic Weighted Regression",
+      family,
       hgwr_geometry_label(args$geometry),
       args$distance,
       hgwr_kernel_label(args$kernel),
@@ -249,14 +282,22 @@ print.lhwr <- function(x, ...) {
 #' @export
 print.summary.lhwr <- function(x, ...) {
   cat("Summary of LHWR\n")
-  cat("Geometry-aware local regression on hyperboloid locations\n")
+  family <- x$family %||% x$arguments$family %||% "gaussian"
+  cat(
+    if (family == "binomial") {
+      "Geometry-aware local logistic regression on hyperboloid locations\n"
+    } else {
+      "Geometry-aware local linear regression on hyperboloid locations\n"
+    }
+  )
   hgwr_rule()
   cat("Call:\n")
   print(x$call)
   cat("\nCalibration\n")
   info <- data.frame(
-    Setting = c("Geometry", "Distance", "Kernel", "Diagnostics", "Bandwidth", "Bandwidth type"),
+    Setting = c("Family", "Geometry", "Distance", "Kernel", "Diagnostics", "Bandwidth", "Bandwidth type"),
     Value = c(
+      family,
       hgwr_geometry_label(x$arguments$geometry),
       x$arguments$distance,
       hgwr_kernel_label(x$arguments$kernel),
@@ -325,6 +366,15 @@ hgwr_format_number <- function(x, digits = 6) {
 hgwr_diagnostic_table <- function(diag) {
   labels <- c(
     RSS.gw = "Residual sum of squares",
+    deviance = "Binomial deviance",
+    null.deviance = "Null binomial deviance",
+    pseudo.R2 = "McFadden pseudo-R-squared",
+    logLik = "Binomial log-likelihood",
+    brier = "Brier score",
+    converged = "Converged local fits",
+    not.converged = "Non-converged local fits",
+    class.variation.failures = "Single-class neighborhoods",
+    rank.deficient = "Rank-deficient local Fisher matrices",
     AIC = "AIC",
     AICc = "AICc",
     BIC = "BIC",
@@ -336,7 +386,10 @@ hgwr_diagnostic_table <- function(diag) {
     gw.R2 = "Local-model R-squared",
     gwR2.adj = "Adjusted local R-squared",
     kappa.median = "Median local condition number",
+    kappa.max = "Maximum local condition number",
+    neff.min = "Minimum effective sample size",
     neff.median = "Median effective sample size",
+    n.positive.min = "Minimum positive kernel weights",
     n.positive.median = "Median positive kernel weights"
   )
   present <- intersect(names(labels), names(diag))

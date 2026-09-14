@@ -69,6 +69,28 @@ Moran's I under hyperbolic neighborhoods, for residuals from a fitted
 LHWR model. The default weights use Lorentz-hyperbolic distance to
 define each hyperbolic neighborhood.
 }
+\details{
+The local statistic is the centred residual times its weighted residual lag,
+divided by the mean squared centred residual. High/low classifications refer
+to these two centred quantities, not response levels or coefficient signs.
+The full residual vector is permuted, rather than keeping the focal residual
+fixed. Two-sided absolute deviations use each location's permutation mean;
+p-values use a plus-one correction. These are descriptive post-fit checks,
+not exact tests for fitted residuals.
+
+\code{cluster_type} uses raw p-values <= 0.05 and does not apply multiplicity
+adjustment. Changing the plot's alpha only masks stored classifications when
+requested; it does not reclassify or adjust p-values. Keep raw classifications
+and any explicitly adjusted display in separate columns. Adjustment alone
+does not validate the fitted-residual permutation law. Record permutations
+and seed separately, as not all settings are stored in the local result.
+
+The diagnostic weight and kernel-specific cache rules described in
+\code{\link[=moran.lhwr]{moran.lhwr()}} apply here too. See
+\code{vignette("lhwr-diagnostics-and-tuning", package = "LHWL")} and
+\code{vignette("lhwr-graphics", package = "LHWL")} for tables, cluster maps,
+Moran scatterplots and explicit adjusted display rules.
+}
 \examples{
 set.seed(13)
 H <- simulate_H2(60, r_max = 3)

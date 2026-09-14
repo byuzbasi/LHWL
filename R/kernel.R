@@ -100,6 +100,14 @@ hgwr_boxcar <- function(d, bw) {
 #' Dispatch to one of the supported kernel functions and return the associated
 #' weights.
 #'
+#' Kernel shape and bandwidth have different roles. Gaussian and exponential
+#' kernels have noncompact support; bisquare, tricube and boxcar are zero at
+#' and beyond the bandwidth. The exact kNN fitting engine supports only those
+#' three compact kernels. The Moran/LISA direct kernel choices form a smaller
+#' set; an explicit diagnostic weight matrix can be supplied separately.
+#' See `vignette("lhwr-diagnostics-and-tuning", package = "LHWL")` for all
+#' five formulas, overlaid weight curves and supported option combinations.
+#'
 #' @param d Numeric vector or matrix of nonnegative distances.
 #' @param bw Positive bandwidth value, or a vector of bandwidths compatible
 #'   with the columns of `d`.

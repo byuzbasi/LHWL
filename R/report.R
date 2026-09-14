@@ -2,9 +2,9 @@
 #'
 #' Print a structured report for an LHWR fitted model. The report is designed
 #' for applied analysis: it combines the model call, calibration settings,
-#' global OLS baseline, LHWR diagnostics, local coefficient summaries, optional
-#' local inference, optional diagnostic F-tests, and optional residual or
-#' collinearity diagnostics.
+#' a global Gaussian or binomial baseline, LHWR diagnostics, local coefficient
+#' summaries, optional local inference, optional diagnostic F-tests, and
+#' optional residual or collinearity diagnostics.
 #'
 #' The function does not refit the model. Local inference is computed only from
 #' quantities already stored in the fitted object, and therefore requires a fit
@@ -13,8 +13,8 @@
 #' already been computed separately.
 #'
 #' @param object An LHWR model object returned by [lhwr()].
-#' @param include_global Logical. If `TRUE`, include the global OLS baseline
-#'   stored in `object$lm` when available.
+#' @param include_global Logical. If `TRUE`, include the global linear or
+#'   logistic baseline stored in `object$lm` when available.
 #' @param include_inference Logical. If `TRUE`, include exploratory local
 #'   coefficient inference when available or computable from the fit.
 #' @param include_f_tests Logical. If `TRUE`, include diagnostic F-tests when
@@ -123,6 +123,7 @@ lhwr_report <- function(object,
     include_moran = include_moran,
     include_collinearity = include_collinearity,
     digits = digits,
+    family = object$family %||% args$family %||% "gaussian",
     geometry = args$geometry,
     kernel = args$kernel
   )
@@ -147,7 +148,13 @@ print.lhwr_report <- function(x, digits = NULL, ...) {
   print(x$calibration, row.names = FALSE, right = FALSE)
 
   if (!is.null(x$global)) {
-    cat("\nGlobal OLS baseline\n")
+    cat(
+      if (identical(x$settings$family, "binomial")) {
+        "\nGlobal logistic baseline\n"
+      } else {
+        "\nGlobal OLS baseline\n"
+      }
+    )
     hgwr_rule()
     print(x$global, row.names = FALSE, right = FALSE)
   }
@@ -208,6 +215,7 @@ lhwr_report_calibration_table <- function(object) {
   data.frame(
     Setting = c(
       "Response",
+      "Family",
       "Predictors",
       "Observations",
       "Local coefficients",
@@ -221,6 +229,7 @@ lhwr_report_calibration_table <- function(object) {
     ),
     Value = c(
       response,
+      object$family %||% args$family %||% "gaussian",
       paste(predictors, collapse = ", "),
       n,
       length(object$coef_names),
@@ -239,7 +248,22 @@ lhwr_report_calibration_table <- function(object) {
 lhwr_report_global_table <- function(object) {
   lm_fit <- object$lm
   if (is.null(lm_fit) || !inherits(lm_fit, "lm")) {
-    return(data.frame(Metric = "Global OLS baseline", Value = "Not available", check.names = FALSE))
+    return(data.frame(Metric = "Global model", Value = "Not available", check.names = FALSE))
+  }
+  if (inherits(lm_fit, "glm") &&
+      identical(object$family %||% object$LHWR.arguments$family, "binomial")) {
+    vals <- c(
+      "Deviance" = stats::deviance(lm_fit),
+      "Null deviance" = lm_fit$null.deviance,
+      "AIC" = stats::AIC(lm_fit),
+      "BIC" = stats::BIC(lm_fit),
+      "Residual df" = stats::df.residual(lm_fit)
+    )
+    return(data.frame(
+      Metric = names(vals),
+      Value = hgwr_format_number(vals),
+      check.names = FALSE
+    ))
   }
   sm <- summary(lm_fit)
   rss <- sum(stats::residuals(lm_fit)^2)

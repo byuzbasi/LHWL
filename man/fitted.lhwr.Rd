@@ -21,7 +21,7 @@
   object,
   newdata = NULL,
   Znew = NULL,
-  type = c("response", "coefficients"),
+  type = c("response", "link", "coefficients"),
   dMat = NULL,
   bw = NULL,
   kernel = NULL,
@@ -41,7 +41,7 @@
   object,
   newdata = NULL,
   Znew = NULL,
-  type = c("response", "coefficients"),
+  type = c("response", "link", "coefficients"),
   dMat = NULL,
   bw = NULL,
   kernel = NULL,
@@ -63,7 +63,8 @@ calibration data.}
 \item{Znew}{Optional \verb{m x 3} Lorentz-hyperboloid coordinate matrix for
 \code{newdata}. Required when \code{newdata} is supplied.}
 
-\item{type}{Prediction type. \code{"response"} returns fitted responses and
+\item{type}{Prediction type. \code{"response"} returns fitted responses
+(probabilities for binomial LHWR), \code{"link"} returns linear predictors, and
 \code{"coefficients"} returns the local coefficient matrix used for prediction.}
 
 \item{dMat}{Optional \verb{m x n} distance matrix from new observations to the
@@ -96,8 +97,18 @@ objects behave like ordinary R model objects for common downstream tasks.
 \code{predict.lhwr()} returns fitted values for the calibration data when
 \code{newdata} is omitted. For new observations, supply both the Euclidean
 covariates in \code{newdata} and their Lorentz-hyperboloid coordinates in \code{Znew}.
-Prediction is then obtained by fitting a local weighted least-squares model
-at each new Lorentz location using only the original calibration data.
+Prediction is then obtained by fitting a local weighted Gaussian or
+binomial model at each new Lorentz location using only the original
+calibration data.
+}
+\details{
+Tangent-E prediction reuses the stored training reference point for every
+prediction batch. If an older object has no stored reference, it is
+reconstructed from \code{object$Z}, never from \code{Znew}. Identical mapped points
+have exactly zero distance; nearby distinct tangent coordinates are not
+rounded to zero by a pairwise-distance tolerance. With unchanged model
+settings, predicting the training rows reproduces the calibration fit up
+to floating-point error.
 }
 \examples{
 set.seed(11)

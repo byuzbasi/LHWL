@@ -1,0 +1,22 @@
+/* Local documentation styles; no external fonts or tracking. */
+main { line-height: 1.68; }
+main h2 { margin-top: 2.4rem; }
+main h3 { margin-top: 1.65rem; }
+main pre { font-size: 0.86rem; }
+main table { font-size: 0.94rem; width: 100%; }
+main th, main td { padding: 0.55rem; vertical-align: top; }
+main img { max-width: 100%; height: auto; }
+main .caption { color: #475569; font-size: 0.92rem; line-height: 1.5; }
+main .math.display,
+main p:has(> math[display="block"]) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+main math[display="block"] { min-width: max-content; }
+@media (max-width: 767px) {
+  main img[width="49%"] { width: 100%; display: block; }
+  main table { display: block; overflow-x: auto; }
+  main pre { font-size: 0.8rem; }
+}

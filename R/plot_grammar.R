@@ -13,6 +13,13 @@
 #' `plot_lhwr_inference()` for local p-values and significance,
 #' and `plot_lhwr_diagnostics()` for model diagnostic surfaces.
 #'
+#' See `vignette("lhwr-graphics", package = "LHWL")` for executable paired
+#' coefficient/significance maps, coefficient-colour plus significance-ring
+#' overlays, fitted/residual surfaces, LISA maps, network overlays and guarded
+#' PDF/PNG export. Helpers defined in that guide are vignette recipes, not new
+#' exported package functions. A default model projection is the Lorentz
+#' spatial-coordinate plane, not a Poincare or geographic map.
+#'
 #' @name lhwr_plotting_grammar
 NULL
 
@@ -27,8 +34,14 @@ NULL
 #' @param values Optional numeric vector for point colors. Defaults to the
 #'   hyperbolic radius.
 #' @param labels Optional point labels.
-#' @param title Optional title. Use `NULL` for manuscript-style figures.
+#' @param title Optional title. `NULL` suppresses the Poincare title but selects
+#'   a default title for hyperboloid/radial views; use `""` for those views
+#'   when the title is provided by a manuscript caption.
 #' @param palette HCL palette for numeric values.
+#' @param show_size_legend Logical; draw the point-size legend in the Poincare
+#'   view.
+#' @param show_info Logical; draw the explanatory information box in the
+#'   Poincare view.
 #' @param ... Additional arguments passed to the underlying plotting function.
 #' @return Invisibly returns plotting coordinates or the input `Z`.
 #' @examples
@@ -108,6 +121,8 @@ plot_lhwr_embedding <- function(Z,
                                 values = NULL,
                                 groups = NULL,
                                 significant = NULL,
+                                significance_adjusted = NULL,
+                                significance_direction = NULL,
                                 labels = NULL,
                                 node_names = NULL,
                                 sizes = NULL,
@@ -121,6 +136,8 @@ plot_lhwr_embedding <- function(Z,
     values = values,
     groups = groups,
     significant = significant,
+    significance_adjusted = significance_adjusted,
+    significance_direction = significance_direction,
     labels = labels,
     node_names = node_names,
     sizes = sizes,
@@ -151,6 +168,8 @@ plot_lhwr_network_map <- function(Z,
                                   values = NULL,
                                   groups = NULL,
                                   significant = NULL,
+                                  significance_adjusted = NULL,
+                                  significance_direction = NULL,
                                   labels = NULL,
                                   node_names = NULL,
                                   sizes = NULL,
@@ -169,6 +188,8 @@ plot_lhwr_network_map <- function(Z,
     values = values,
     groups = groups,
     significant = significant,
+    significance_adjusted = significance_adjusted,
+    significance_direction = significance_direction,
     labels = labels,
     node_names = node_names,
     sizes = sizes,
@@ -229,6 +250,8 @@ plot_lhwr_model <- function(object,
 #' @param alpha Significance level.
 #' @param p_adjust Multiplicity adjustment.
 #' @param inference_df Degrees-of-freedom rule.
+#' @param show_info Logical; draw the explanatory information box in the
+#'   Poincare view.
 #' @param ... Additional arguments passed to the plotting function.
 #' @return Invisibly returns the map object for Poincare plots or `object`.
 #' @examples
@@ -266,12 +289,15 @@ plot_lhwr_inference <- function(object,
   z <- inf$local[inf$local$coefficient == coefficient, , drop = FALSE]
   Z <- resolve_plot_Z(object, NULL)
   if (type == "significance") {
+    raw_sig <- is.finite(z$p_value) & z$p_value < alpha
+    adjusted_sig <- is.finite(z$p_adjusted) & z$p_adjusted < alpha
     return(plot_lhwr_poincare_map(
       Z,
-      significant = z$significant,
+      significant = raw_sig,
+      significance_adjusted = adjusted_sig,
       labels = seq_len(nrow(Z)),
       title = NULL,
-      value_label = paste0("Local significance: ", coefficient),
+      significance_label = paste0("Local significance: ", coefficient),
       show_size_legend = FALSE,
       show_info = show_info,
       ...

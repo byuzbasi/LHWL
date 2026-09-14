@@ -226,10 +226,17 @@ hgwr.fit.knn <- function(y, X, Z, k, kernel = c("bisquare", "tricube", "boxcar")
 
 #' Fit a Lorentz Hyperbolic Weighted Regression Model
 #'
-#' Estimate location-varying regression coefficients for observations located
-#' on the Lorentz hyperboloid. At each focal point, the function fits a weighted
-#' linear regression using kernel weights derived from either intrinsic Lorentz
-#' distances or tangent-space distances.
+#' Estimate location-varying Gaussian or binomial regression coefficients for
+#' observations located on the Lorentz hyperboloid. At each focal point, the
+#' function fits an unpenalized weighted linear or logistic regression using
+#' kernel weights derived from either intrinsic Lorentz distances or
+#' tangent-space distances.
+#'
+#' Standard errors, local test statistics, and fitted-model diagnostics are
+#' conditional on the supplied `Z` matrix and the fitted neighborhood system.
+#' If `Z` is estimated from data, these quantities do not propagate
+#' first-stage representation uncertainty. They also do not include
+#' uncertainty from data-driven bandwidth selection.
 #'
 #' @param formula Model formula of the form `response ~ predictors`.
 #' @param data Data frame containing the response and predictor variables used
@@ -279,13 +286,22 @@ hgwr.fit.knn <- function(y, X, Z, k, kernel = c("bisquare", "tricube", "boxcar")
 #' @param f_tests Logical. If `TRUE`, compute LHWR diagnostic F-tests
 #'   after model fitting. The default `FALSE` avoids the additional smoother
 #'   reconstruction cost, which can be substantial for large data sets.
+#'   Diagnostic F-tests are available only for Gaussian LHWR.
+#' @param family Response family. `"gaussian"` fits local weighted
+#'   least-squares regressions and `"binomial"` fits local weighted logistic
+#'   regressions. The default preserves the original Gaussian LHWR behavior.
+#' @param control Iteration controls for binomial LHWR, created by
+#'   [stats::glm.control()]. `epsilon`, `maxit`, and `trace` are used by the
+#'   native local IRLS solver. Ignored for Gaussian LHWR.
 #' @return An object of class `"lhwr"`, a list containing model arguments,
 #'   diagnostic summaries, the global linear model fit, local coefficient table
 #'   `SDF`, coefficient names, local coefficient matrix `beta_hat`, fitted
 #'   values, residuals, distance matrix, selected geometry label, effective
 #'   bandwidth vector, hat-matrix diagonal, local condition numbers, local
 #'   effective sample sizes, local counts of positive kernel weights, timing
-#'   information, and the original function call.
+#'   information, family-specific convergence information, and the original
+#'   function call. For binomial models, fitted values are response
+#'   probabilities and residuals are response residuals `y - p`.
 #' @examples
 #' set.seed(20260615)
 #' n <- 120
@@ -344,6 +360,18 @@ hgwr.fit.knn <- function(y, X, Z, k, kernel = c("bisquare", "tricube", "boxcar")
 #'   geometry = "tangent"
 #' )
 #' fit_tangent$geometry
+#'
+#' probability <- plogis(-0.4 + 1.1 * x1 - 0.7 * x2)
+#' dat$event <- rbinom(n, 1, probability)
+#' fit_binomial <- lhwr(
+#'   event ~ x1 + x2,
+#'   data = dat,
+#'   Z = Z,
+#'   bw = 40,
+#'   family = "binomial",
+#'   diagnostics = "full"
+#' )
+#' head(fitted(fit_binomial))
 #' @export
 lhwr <- function(formula, data, Z, bw,
                        kernel = hgwr_kernel_names(),
@@ -356,7 +384,9 @@ lhwr <- function(formula, data, Z, bw,
                        engine = c("dense", "knn"),
                        n_threads = 1L,
                        diagnostics = c("full", "aicc", "none"),
-                       f_tests = FALSE) {
+                       f_tests = FALSE,
+                       family = c("gaussian", "binomial"),
+                       control = stats::glm.control(maxit = 100L)) {
   this.call <- match.call()
   timings <- list(start = Sys.time())
   kernel <- match.arg(kernel)
@@ -364,8 +394,24 @@ lhwr <- function(formula, data, Z, bw,
   geometry <- match.arg(geometry)
   engine <- match.arg(engine)
   diagnostics <- match.arg(diagnostics)
+  family <- match.arg(family)
   f_tests <- isTRUE(f_tests)
   n_threads <- resolve_n_threads_arg(n_threads)
+  if (family == "binomial") {
+    control <- lhwr_validate_glm_control(control)
+    if (diagnostics == "aicc") {
+      stop(
+        "`diagnostics = \"aicc\"` is not defined for binomial LHWR; use `\"full\"` or `\"none\"`.",
+        call. = FALSE
+      )
+    }
+    if (f_tests) {
+      stop(
+        "Diagnostic F-tests are available only for Gaussian LHWR.",
+        call. = FALSE
+      )
+    }
+  }
   if (geometry == "tangent" && bandwidth_type == "volume") {
     stop("`bandwidth_type = \"volume\"` is only defined for `geometry = \"lorentz\"`.", call. = FALSE)
   }
@@ -381,9 +427,15 @@ lhwr <- function(formula, data, Z, bw,
   }
   
   mf <- hgwr_model_frame(formula, data)
-  y <- mf$y
+  if (family == "binomial" &&
+      length(stats::model.offset(mf$model_frame))) {
+    stop("Formula offsets are not yet supported by binomial `lhwr()`.", call. = FALSE)
+  }
+  response <- lhwr_response(mf$y, family)
+  y <- response$y
   X <- mf$X
   colnames(X) <- clean_coef_names(colnames(X))
+  intercept <- isTRUE(attr(mf$terms, "intercept") == 1L)
   
   Z <- as_lorentz_matrix(Z, "Z")
   check_hyperboloid(Z, stop_on_fail = TRUE)
@@ -413,7 +465,48 @@ lhwr <- function(formula, data, Z, bw,
   
   timings$calibration <- Sys.time()
   return_hat <- diagnostics != "none" || f_tests
-  fit <- if (engine == "knn") {
+  fit <- if (family == "binomial") {
+    neighborhood <- lhwr_binomial_neighborhood(
+      Z = Z,
+      D = D,
+      bw = bw_vec,
+      kernel = kernel,
+      engine = engine,
+      n_threads = n_threads
+    )
+    binomial_fit <- lhwr_binomial_fit_native(
+      y = y,
+      X = X,
+      X_focus = X,
+      neighborhood = neighborhood,
+      intercept = intercept,
+      kernel = kernel,
+      n_threads = n_threads,
+      control = control,
+      return_inference = diagnostics == "full"
+    )
+    binomial_fit$diagnostic <- lhwr_binomial_diagnostics(
+      y = y,
+      fitted = binomial_fit$y_hat,
+      converged = binomial_fit$converged,
+      local_class_variation = binomial_fit$local_class_variation,
+      local_kappa = if (diagnostics == "full") {
+        binomial_fit$local_kappa
+      } else {
+        NULL
+      },
+      local_rank = if (diagnostics == "full") {
+        binomial_fit$local_rank
+      } else {
+        NULL
+      },
+      coefficient_count = ncol(binomial_fit$beta_hat),
+      local_neff = binomial_fit$local_neff,
+      local_n_positive = binomial_fit$local_n_positive
+    )
+    binomial_fit$hat_diag <- rep(NA_real_, length(y))
+    binomial_fit
+  } else if (engine == "knn") {
     hgwr.fit.knn(
       y = y,
       X = X,
@@ -428,33 +521,77 @@ lhwr <- function(formula, data, Z, bw,
     hgwr.fit(y = y, X = X, D = D, bw = bw_vec, kernel = kernel, return_hat = return_hat)
   }
   timings$diagnostic <- Sys.time()
-  
-  beta_df <- as.data.frame(fit$beta_hat)
-  SDF <- data.frame(
-    y = y,
-    yhat = fit$y_hat,
-    residual = fit$residuals,
-    beta_df,
-    check.names = FALSE
-  )
-  if (diagnostics == "full") {
-    SDF <- data.frame(
-      SDF,
-      as.data.frame(fit$se_beta),
-      as.data.frame(fit$t_beta),
-      Local_R2 = if (engine == "knn") {
-        local_r2_knn(y, fit$y_hat, fit$knn_index, fit$knn_distance, fit$bandwidth, kernel)
-      } else {
-        local_r2(y, fit$y_hat, D, bw_vec, kernel)
-      },
-      check.names = FALSE
+
+  if (family == "binomial" && any(!fit$converged)) {
+    warning(
+      sum(!fit$converged),
+      " of ",
+      length(fit$converged),
+      " local binomial fits did not meet the convergence criterion; inspect `converged` and local class variation.",
+      call. = FALSE
     )
   }
   
-  lm_fit <- stats::lm(formula, data = data)
+  beta_df <- as.data.frame(fit$beta_hat)
+  SDF <- if (family == "binomial") {
+    data.frame(
+      y = y,
+      yhat = fit$y_hat,
+      linear_predictor = fit$linear_predictor,
+      residual = fit$residuals,
+      beta_df,
+      check.names = FALSE
+    )
+  } else {
+    data.frame(
+      y = y,
+      yhat = fit$y_hat,
+      residual = fit$residuals,
+      beta_df,
+      check.names = FALSE
+    )
+  }
+  if (diagnostics == "full") {
+    if (family == "binomial") {
+      SDF <- data.frame(
+        SDF,
+        as.data.frame(fit$se_beta),
+        as.data.frame(fit$z_beta),
+        check.names = FALSE
+      )
+    } else {
+      SDF <- data.frame(
+        SDF,
+        as.data.frame(fit$se_beta),
+        as.data.frame(fit$t_beta),
+        Local_R2 = if (engine == "knn") {
+          local_r2_knn(y, fit$y_hat, fit$knn_index, fit$knn_distance, fit$bandwidth, kernel)
+        } else {
+          local_r2(y, fit$y_hat, D, bw_vec, kernel)
+        },
+        check.names = FALSE
+      )
+    }
+  }
+  
+  global_fit <- if (family == "binomial") {
+    stats::glm(
+      formula,
+      data = data,
+      family = stats::binomial(),
+      control = stats::glm.control(
+        epsilon = control$epsilon,
+        maxit = control$maxit,
+        trace = control$trace
+      )
+    )
+  } else {
+    stats::lm(formula, data = data)
+  }
   result <- list(
     LHWR.arguments = list(
       formula = formula,
+      family = family,
       bw = bw,
       kernel = kernel,
       adaptive = adaptive,
@@ -466,14 +603,24 @@ lhwr <- function(formula, data, Z, bw,
       f_tests = f_tests,
       pilot_k = if (adaptive && bandwidth_type == "volume") resolve_pilot_k(length(y), pilot_k) else pilot_k,
       tangent_ref = distance$tangent_ref,
-      distance = distance$label
+      distance = distance$label,
+      control = if (family == "binomial") control else NULL
     ),
     LHWR.diagnostic = fit$diagnostic,
-    lm = lm_fit,
+    lm = global_fit,
+    global_model = global_fit,
+    family = family,
+    response_levels = response$levels,
+    intercept = intercept,
     SDF = SDF,
     coef_names = colnames(fit$beta_hat),
     beta_hat = fit$beta_hat,
     y_hat = fit$y_hat,
+    linear_predictor = if (family == "binomial") {
+      fit$linear_predictor
+    } else {
+      fit$y_hat
+    },
     residuals = fit$residuals,
     Z = Z,
     distance = D,
@@ -483,8 +630,17 @@ lhwr <- function(formula, data, Z, bw,
     bandwidth = if (engine == "knn") fit$bandwidth else bw_vec,
     hat_diag = fit$hat_diag,
     local_kappa = fit$local_kappa,
+    local_rank = fit$local_rank,
     local_neff = fit$local_neff,
     local_n_positive = fit$local_n_positive,
+    local_weight_sum = fit$local_weight_sum,
+    local_class_variation = fit$local_class_variation,
+    local_events = fit$local_events,
+    local_nonevents = fit$local_nonevents,
+    converged = fit$converged,
+    iterations = fit$iterations,
+    irls_iterations = fit$irls_iterations,
+    kkt = fit$kkt,
     knn_index = fit$knn_index,
     knn_distance = fit$knn_distance,
     timings = c(timings, list(stop = Sys.time())),
@@ -550,8 +706,9 @@ hgwr_wls_one <- function(X, y, w, focus, return_hat = TRUE) {
 hgwr_model_frame <- function(formula, data) {
   mf <- stats::model.frame(formula, data)
   y <- stats::model.response(mf)
-  X <- stats::model.matrix(stats::terms(mf), mf)
-  list(y = y, X = X)
+  terms_object <- stats::terms(mf)
+  X <- stats::model.matrix(terms_object, mf)
+  list(y = y, X = X, terms = terms_object, model_frame = mf)
 }
 
 resolve_n_threads_arg <- function(n_threads) {

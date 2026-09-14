@@ -1,0 +1,14 @@
+citHeader("To cite LHWL in publications, use:")
+
+bibentry(
+  bibtype = "Manual",
+  key = "LHWL",
+  title = "LHWL: Lorentz Hyperbolic Weighted Learning",
+  author = c(
+    person("Bahadır", "Yüzbaşı"),
+    person("Zühal", "Küçükarslan Yüzbaşı")
+  ),
+  year = "2026",
+  note = paste("R package version", meta$Version),
+  url = "https://github.com/byuzbasi/LHWL"
+)

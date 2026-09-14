@@ -10,6 +10,11 @@
 #' local dependence matter. Use `adjust = "BH"`, `"holm"`, or `"bonferroni"`
 #' when the goal is to identify robust local patterns.
 #'
+#' Inference is conditional on the Lorentz-model coordinates and neighborhood
+#' weights stored in `object`. If the representation was estimated, the reported
+#' standard errors and p-values do not include first-stage representation
+#' uncertainty or uncertainty from bandwidth selection.
+#'
 #' @param object An LHWR model object returned by [lhwr()].
 #' @param alpha Significance level used to create the `significant` flag.
 #' @param df Degrees-of-freedom rule. `"edf"` uses the model effective degrees of
@@ -45,6 +50,12 @@ local_inference <- function(object,
                             ...) {
   if (!is_lhwr_object(object)) {
     stop("`object` must be an LHWR model object.", call. = FALSE)
+  }
+  if (identical(object$family %||% object$LHWR.arguments$family, "binomial")) {
+    stop(
+      "Classical LHWR local t-inference is defined only for Gaussian models. Binomial fits retain Fisher-information standard errors and z-values in `SDF` for exploratory use.",
+      call. = FALSE
+    )
   }
   df <- match.arg(df)
   adjust <- match.arg(adjust)

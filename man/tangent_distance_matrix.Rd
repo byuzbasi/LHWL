@@ -11,7 +11,8 @@ tangent_distance_matrix(Z, mu = NULL, tol = 1e-10)
 
 \item{mu}{Reference point. If \code{NULL}, the normalized extrinsic mean is used.}
 
-\item{tol}{Numerical tolerance used in the logarithmic map.}
+\item{tol}{Intrinsic-distance threshold used by \code{\link[=lorentz_log_map]{lorentz_log_map()}}; points
+within this distance of \code{mu} are mapped to zero.}
 }
 \value{
 A symmetric \verb{n x n} tangent-space distance matrix.
@@ -22,6 +23,18 @@ Compute a distance matrix after mapping Lorentz hyperboloid points to
 Lorentz inner product restricted to the tangent space, which is positive
 definite. Equivalently, this is Euclidean distance in a Lorentz-orthonormal
 tangent basis.
+}
+\details{
+With \eqn{v_i=\log_\mu(z_i)} and \eqn{v_j=\log_\mu(z_j)}, the distance is
+\deqn{d_{T,\mu}(z_i,z_j)=\sqrt{\langle v_i-v_j,v_i-v_j\rangle_L}.}
+Here \eqn{i,j} index input rows and \code{\link[=lorentz_inner]{lorentz_inner()}} defines the inner
+product. Its restriction to the common tangent plane is positive definite.
+These distances define the Tangent-E weighting approximation: radial
+distances from \code{mu} are preserved in exact arithmetic, but general pairwise
+hyperbolic distances are not. The implementation uses coordinate differences
+and gives identical mapped points exactly zero distance. The \code{tol} argument
+applies to each point's distance from \code{mu} in the log map, not to arbitrary
+pairwise distances between distinct tangent coordinates.
 }
 \examples{
 H <- simulate_H2(5, r_max = 2)

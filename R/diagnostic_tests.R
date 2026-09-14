@@ -1,18 +1,37 @@
 #' LHWR Diagnostic F-Tests
 #'
-#' Compute GWR-style diagnostic F-tests for a fitted LHWR model. The
-#' diagnostics use the LHWR smoother induced by the model's kernel
-#' weights and distance geometry. They are optional because coefficient-specific
-#' F3 diagnostics require reconstructing local smoother rows and can be costly
-#' for large data sets.
+#' Compute Leung-type, moment-matched diagnostic F-tests adapted to a fitted
+#' LHWR model. The diagnostics use the LHWR smoother induced by the model's
+#' kernel weights and distance geometry. Their reference distributions use
+#' generally non-integer effective degrees of freedom. The reference laws are
+#' approximate and condition on the fitted geometry and selected bandwidth;
+#' they should not be read as post-selection confirmatory tests. They are
+#' optional because coefficient-specific F3 diagnostics require reconstructing
+#' local coefficient operators and can be costly for large data sets.
 #'
 #' @param object A fitted model object.
 #' @param ... Additional arguments passed to methods.
 #' @return A diagnostic test object.
+#' @details
+#' F1 uses a lower-tail moment-matched F reference; F2 uses an upper-tail
+#' reference for improvement over the stored global OLS model. F3 uses an
+#' upper-tail reference for each coefficient's constancy across locations,
+#' not for that coefficient being zero at one location. The quadratic forms
+#' are generally dependent, so these are not exact nested-model ANOVA tests.
+#' Independent homoskedastic Gaussian errors and fixed stationary-model weights
+#' motivate the approximations; bandwidth selection, correlated errors and
+#' varying nuisance coefficients limit their interpretation.
+#'
+#' Required moments and reference degrees of freedom must be positive; do not
+#' interpret undefined p-values as zero. When supplying `ols_model`, verify the
+#' same response, predictor columns and observation order, not only row count.
+#' The default stored OLS model avoids a separate sample/formula choice.
+#' See `vignette("lhwr-diagnostics-and-tuning", package = "LHWL")` for the
+#' statistics, reference degrees of freedom and executable reporting tables.
 #' @examples
 #' # Example 1: globally stationary coefficients.
-#' # The diagnostic tests should usually not reject stationarity here because
-#' # the response does not depend on the Lorentz locations.
+#' # The diagnostics should usually not reject global adequacy or local
+#' # coefficient constancy because the response does not depend on location.
 #' set.seed(1)
 #' H <- simulate_H2(80, r_max = 3)
 #' Z <- H$Z
@@ -34,7 +53,8 @@
 #'
 #' # Example 2: hyperbolic coefficient heterogeneity.
 #' # The coefficients are generated from localized bumps defined by
-#' # Lorentz-hyperbolic distances, so F-tests may detect nonstationarity.
+#' # Lorentz-hyperbolic distances, so the diagnostics may detect departures
+#' # from the global model and coefficient-specific local variability.
 #' set.seed(2)
 #' H <- simulate_H2(80, r_max = 3, uniform_area = TRUE)
 #' Z <- H$Z
@@ -85,6 +105,12 @@ diagnostic_tests.lhwr <- function(object, ols_model = NULL, digits = 3,
   if (engine == "auto") engine <- "cpp"
   if (!is_lhwr_object(object)) {
     stop("`object` must inherit from class 'lhwr'.", call. = FALSE)
+  }
+  if (identical(object$family %||% object$LHWR.arguments$family, "binomial")) {
+    stop(
+      "Diagnostic F-tests are defined only for Gaussian LHWR.",
+      call. = FALSE
+    )
   }
   if (is.null(ols_model)) {
     ols_model <- object$lm
@@ -139,7 +165,7 @@ diagnostic_tests.lhwr <- function(object, ols_model = NULL, digits = 3,
     Test = c("F1", "F2"),
     Null_Hypothesis = c(
       "LHWR does not improve upon OLS",
-      "All coefficients are stationary over local neighborhoods"
+      "Global OLS specification is adequate"
     ),
     F = c(f_raw$F1, f_raw$F2),
     df1 = c(f_raw$F1_df1, f_raw$F2_df1),
@@ -160,9 +186,14 @@ diagnostic_tests.lhwr <- function(object, ols_model = NULL, digits = 3,
       RSS_full = RSS_full,
       trS = trS,
       trStS = trStS,
-      delta1 = delta1,
+      delta1 = f_raw$L_delta1,
+      delta2 = f_raw$L_delta2,
+      delta1_hat = delta1,
       L_delta1 = f_raw$L_delta1,
       L_delta2 = f_raw$L_delta2,
+      gamma1 = as.numeric(f_raw$gamma1),
+      gamma2 = as.numeric(f_raw$gamma2),
+      moment_method = f_raw$moment_method,
       bandwidth = object$bandwidth,
       kernel = object$LHWR.arguments$kernel,
       geometry = object$LHWR.arguments$geometry,
@@ -273,9 +304,8 @@ hgwr_f_tests_R_components <- function(object, X, RSS_full, RSS_ols,
   kernel <- object$LHWR.arguments$kernel
   n <- nrow(X)
   p <- ncol(X)
-  q_diag <- rep(1, n)
-  B_sum <- matrix(0, p, n)
-  B_sumsq <- matrix(0, p, n)
+  S <- matrix(0, n, n)
+  B_ops <- lapply(seq_len(p), function(k) matrix(0, n, n))
 
   for (i in seq_len(n)) {
     w <- as.numeric(hgwr_kernel(D[, i], bw[i], kernel = kernel))
@@ -284,16 +314,19 @@ hgwr_f_tests_R_components <- function(object, X, RSS_full, RSS_ols,
     XtWX_inv <- tryCatch(solve(XtWX), error = function(e) MASS::ginv(XtWX))
     C <- XtWX_inv %*% t(Xw)
     s_row <- as.numeric(X[i, ] %*% C)
-    q_diag <- q_diag + s_row^2
-    q_diag[i] <- q_diag[i] - 2 * s_row[i]
-    B_sum <- B_sum + C
-    B_sumsq <- B_sumsq + C^2
+    S[i, ] <- s_row
+    for (k in seq_len(p)) {
+      B_ops[[k]][i, ] <- C[k, ]
+    }
   }
 
+  residual_operator <- diag(n) - S
+  Q <- crossprod(residual_operator)
+  q_diag <- diag(Q)
   L_delta1 <- sum(q_diag)
-  L_delta2 <- sum(q_diag^2)
-  delta1 <- n - 2 * trS + trStS
-  sigma2_delta1 <- RSS_full / delta1
+  L_delta2 <- sum(Q^2)
+  delta1 <- L_delta1
+  sigma2_delta1 <- RSS_full / L_delta1
 
   F1 <- (RSS_full / L_delta1) / (RSS_ols / DF_ols)
   F1_df1 <- L_delta1^2 / L_delta2
@@ -307,15 +340,17 @@ hgwr_f_tests_R_components <- function(object, X, RSS_full, RSS_ols,
 
   beta_hat <- as.matrix(object$beta_hat)
   F3 <- F3_df1 <- F3_df2 <- F3_p <- rep(NA_real_, p)
+  gamma1 <- gamma2 <- rep(NA_real_, p)
   for (k in seq_len(p)) {
     beta_k <- beta_hat[, k]
     Vk2 <- (sum(beta_k^2) - sum(beta_k)^2 / n) / n
-    diag_BJ <- (B_sumsq[k, ] - B_sum[k, ]^2 / n) / n
-    gamma1 <- sum(diag_BJ)
-    gamma2 <- sum(diag_BJ^2)
-    F3_df1[k] <- gamma1^2 / gamma2
+    centered_B <- sweep(B_ops[[k]], 2L, colMeans(B_ops[[k]]), FUN = "-")
+    Ck <- crossprod(centered_B) / n
+    gamma1[k] <- sum(diag(Ck))
+    gamma2[k] <- sum(Ck^2)
+    F3_df1[k] <- gamma1[k]^2 / gamma2[k]
     F3_df2[k] <- F1_df1
-    F3[k] <- (Vk2 / gamma1) / sigma2_delta1
+    F3[k] <- (Vk2 / gamma1[k]) / sigma2_delta1
     F3_p[k] <- stats::pf(F3[k], F3_df1[k], F3_df2[k], lower.tail = FALSE)
   }
 
@@ -335,7 +370,11 @@ hgwr_f_tests_R_components <- function(object, X, RSS_full, RSS_ols,
     q_diag = q_diag,
     L_delta1 = L_delta1,
     L_delta2 = L_delta2,
-    delta1 = delta1
+    delta1 = delta1,
+    delta1_hat = n - 2 * trS + trStS,
+    gamma1 = gamma1,
+    gamma2 = gamma2,
+    moment_method = "full_trace"
   )
 }
 

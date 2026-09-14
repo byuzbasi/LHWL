@@ -687,10 +687,22 @@ lhwr_hyperboloid_colorbar <- function(values, title, palette = "Blue-Red 3",
 #' @param significant Optional logical vector. If supplied, points are colored as
 #'   significant/non-significant using `significance_colors`; useful for local
 #'   p-value maps.
+#' @param significance_adjusted Optional logical vector used together with
+#'   `significant`. If supplied, local significance is classified as not
+#'   significant, raw-only significant, or significant after adjustment. This is
+#'   useful for comparing raw local p-values with multiplicity-adjusted
+#'   p-values without drawing a second map.
+#' @param significance_direction Optional numeric vector used together with
+#'   `significant`. Negative values are shown as negative significant, positive
+#'   values as positive significant, and non-significant locations remain grey.
+#'   This is useful for local coefficient maps where both significance and sign
+#'   should be visible.
 #' @param labels Optional labels for points, for example country ISO3 codes.
 #' @param node_names Optional longer node names used in map summaries.
 #' @param sizes Optional nonnegative numeric vector for point sizes. A common
-#'   choice is `log1p(total_trade)` or a node degree/strength measure.
+#'   choice is original total trade or a node degree/strength measure. The map
+#'   already applies `log1p` before rescaling sizes; do not log-transform twice
+#'   unless that additional visual transformation is explicitly intended.
 #' @param edges Optional edge list as a data frame or matrix with two columns.
 #'   Entries may be integer row indices or labels matching `node_id`.
 #' @param edge_weight Optional numeric vector of edge weights used for line
@@ -732,6 +744,12 @@ lhwr_hyperboloid_colorbar <- function(values, title, palette = "Blue-Red 3",
 #' @param group_palette Optional vector of colors for `groups`.
 #' @param significance_colors Named or unnamed length-2 color vector for
 #'   `significant = FALSE` and `significant = TRUE`, respectively.
+#' @param signed_significance_colors Named or unnamed length-3 color vector for
+#'   not significant, negative significant, and positive significant locations
+#'   when both `significant` and `significance_direction` are supplied.
+#' @param adjusted_significance_colors Named or unnamed length-3 color vector
+#'   for not significant, raw-only significant, and raw-and-adjusted significant
+#'   locations when both `significant` and `significance_adjusted` are supplied.
 #' @param significance_label Legend title used when `significant` is supplied.
 #' @param background_col Disk background color.
 #' @param boundary_col Disk boundary color.
@@ -743,8 +761,12 @@ lhwr_hyperboloid_colorbar <- function(values, title, palette = "Blue-Red 3",
 #'   legend below the disk when side placement overlaps the plot.
 #' @param show_size_legend Logical; draw point-size legend.
 #' @param show_info Logical; draw an explanatory annotation box.
-#' @param output_file Optional path. If supplied, a PNG is written to this file.
-#' @param width,height,res PNG device settings used when `output_file` is given.
+#' @param output_file Optional output path. PDF and EPS/PS extensions select
+#'   the corresponding device; other extensions use PNG. Existing files may
+#'   be overwritten: check the target first if preservation is required.
+#' @param width,height,res Width and height in pixels and resolution in pixels
+#'   per inch. PDF/EPS dimensions in inches are `width/res` and `height/res`.
+#'   These differ from the inch-based hyperboloid output settings.
 #' @param ... Additional graphical arguments currently ignored.
 #' @return Invisibly returns a data frame containing the Poincare coordinates
 #'   used for plotting.
@@ -764,6 +786,8 @@ plot_lhwr_poincare_map <- function(Z,
                                    values = NULL,
                                    groups = NULL,
                                    significant = NULL,
+                                   significance_adjusted = NULL,
+                                   significance_direction = NULL,
                                    labels = NULL,
                                    node_names = NULL,
                                    sizes = NULL,
@@ -795,6 +819,16 @@ plot_lhwr_poincare_map <- function(Z,
                                    point_palette = "Blue-Red 3",
                                    group_palette = NULL,
                                    significance_colors = c("Not significant" = "#BDBDBD", "Significant" = "#2E7D32"),
+                                   signed_significance_colors = c(
+                                     "Not significant" = "#C9C9C9",
+                                     "Negative significant" = "#7B3294",
+                                     "Positive significant" = "#2E7D32"
+                                   ),
+                                   adjusted_significance_colors = c(
+                                     "Not significant" = "#C9C9C9",
+                                     "Raw only" = "#E69F00",
+                                     "Raw and BH" = "#1B7837"
+                                   ),
                                    significance_label = "Local significance",
                                    background_col = "#F6F1E7",
                                    boundary_col = "#0A9396",
@@ -815,6 +849,12 @@ plot_lhwr_poincare_map <- function(Z,
   if (!is.null(values) && length(values) != n) stop("`values` must have length nrow(Z).", call. = FALSE)
   if (!is.null(groups) && length(groups) != n) stop("`groups` must have length nrow(Z).", call. = FALSE)
   if (!is.null(significant) && length(significant) != n) stop("`significant` must have length nrow(Z).", call. = FALSE)
+  if (!is.null(significance_adjusted) && length(significance_adjusted) != n) {
+    stop("`significance_adjusted` must have length nrow(Z).", call. = FALSE)
+  }
+  if (!is.null(significance_direction) && length(significance_direction) != n) {
+    stop("`significance_direction` must have length nrow(Z).", call. = FALSE)
+  }
   if (!is.null(labels) && length(labels) != n) stop("`labels` must have length nrow(Z).", call. = FALSE)
   if (!is.null(node_names) && length(node_names) != n) stop("`node_names` must have length nrow(Z).", call. = FALSE)
   if (!is.null(sizes) && length(sizes) != n) stop("`sizes` must have length nrow(Z).", call. = FALSE)
@@ -867,7 +907,28 @@ plot_lhwr_poincare_map <- function(Z,
   if (is.null(node_names)) node_names <- labels
   if (is.null(sizes)) sizes <- rep(1, n)
   point_cex <- lhwr_map_scale(sizes, min_out = ctl$point_min, max_out = ctl$point_max)
-  point_cols <- lhwr_map_point_colors(values, groups, point_palette, group_palette, significant, significance_colors)
+  significance_factor <- NULL
+  if (!is.null(significant)) {
+    significance_factor <- if (!is.null(significance_adjusted)) {
+      lhwr_adjusted_significance_factor(significant, significance_adjusted)
+    } else if (is.null(significance_direction)) {
+      lhwr_significance_factor(significant)
+    } else {
+      lhwr_signed_significance_factor(significant, significance_direction)
+    }
+  }
+  point_cols <- lhwr_map_point_colors(
+    values,
+    groups,
+    point_palette,
+    group_palette,
+    significant,
+    significance_adjusted,
+    significance_direction,
+    significance_colors,
+    signed_significance_colors,
+    adjusted_significance_colors
+  )
 
   edge_df <- lhwr_map_edges(
     edges, edge_weight, node_id, px_plot, py_plot,
@@ -876,7 +937,18 @@ plot_lhwr_poincare_map <- function(Z,
   )
 
   if (!is.null(output_file)) {
-    grDevices::png(output_file, width = width, height = height, res = res)
+    output_file <- path.expand(output_file)
+    dir.create(dirname(output_file), recursive = TRUE, showWarnings = FALSE)
+    ext <- tolower(tools::file_ext(output_file))
+    if (ext %in% c("eps", "ps")) {
+      grDevices::cairo_ps(output_file, width = width / res, height = height / res,
+                          onefile = FALSE, fallback_resolution = res)
+    } else if (ext == "pdf") {
+      grDevices::pdf(output_file, width = width / res, height = height / res,
+                     onefile = TRUE)
+    } else {
+      grDevices::png(output_file, width = width, height = height, units = "px", res = res)
+    }
     on.exit(grDevices::dev.off(), add = TRUE)
   }
 
@@ -899,6 +971,14 @@ plot_lhwr_poincare_map <- function(Z,
 
   if (!is.null(values) && is.null(significant) && isTRUE(show_colorbar)) {
     lhwr_map_colorbar(values, value_label, palette = point_palette, cex = ctl$colorbar_cex)
+  } else if (!is.null(significant) && (!is.null(significance_adjusted) || !is.null(significance_direction)) && isTRUE(show_group_legend)) {
+    lhwr_map_group_legend(
+      significance_factor,
+      point_cols,
+      position = group_legend_position,
+      title = significance_label,
+      cex = ctl$legend_cex
+    )
   } else if (!is.null(significant) && isTRUE(show_group_legend)) {
     lhwr_map_significance_legend(significance_colors, title = significance_label, cex = ctl$legend_cex)
   } else if (is.null(values) && !is.null(groups) && isTRUE(show_group_legend)) {
@@ -908,7 +988,19 @@ plot_lhwr_poincare_map <- function(Z,
     lhwr_map_size_legend(size_label, cex = ctl$legend_cex)
   }
   if (isTRUE(show_info)) {
-    color_line <- if (!is.null(significant)) "Color: local significance" else if (!is.null(values)) paste("Color:", value_label) else if (!is.null(groups)) "Color: group" else "Color: fixed"
+    color_line <- if (!is.null(significant) && !is.null(significance_adjusted)) {
+      "Color: raw and adjusted local significance"
+    } else if (!is.null(significant) && !is.null(significance_direction)) {
+      "Color: signed local significance"
+    } else if (!is.null(significant)) {
+      "Color: local significance"
+    } else if (!is.null(values)) {
+      paste("Color:", value_label)
+    } else if (!is.null(groups)) {
+      "Color: group"
+    } else {
+      "Color: fixed"
+    }
     lhwr_map_info_box(c(
       color_line,
       paste("Size:", size_label),
@@ -939,7 +1031,7 @@ plot_lhwr_poincare_map <- function(Z,
     title = title,
     value_label = if (!is.null(values)) value_label else NA_character_,
     group_label = if (!is.null(groups)) group_label else NA_character_,
-    color_variable = if (!is.null(significant)) "local significance" else if (!is.null(values)) value_label else if (!is.null(groups)) group_label else "fixed",
+    color_variable = if (!is.null(significant) && !is.null(significance_adjusted)) "raw and adjusted local significance" else if (!is.null(significant) && !is.null(significance_direction)) "signed local significance" else if (!is.null(significant)) "local significance" else if (!is.null(values)) value_label else if (!is.null(groups)) group_label else "fixed",
     size_label = size_label,
     edge_label = edge_label,
     disk_radius = disk_radius,
@@ -949,7 +1041,7 @@ plot_lhwr_poincare_map <- function(Z,
     radial_power = radial_power,
     cor_log_size_hyperbolic_radius = safe_cor(log1p(pmax(as.numeric(sizes), 0)), acosh(pmax(Z[, 1], 1))),
     cor_log_size_poincare_radius = safe_cor(log1p(pmax(as.numeric(sizes), 0)), pr),
-    group_counts = if (!is.null(groups)) sort(table(groups), decreasing = TRUE) else NULL
+    group_counts = if (!is.null(significance_factor)) sort(table(significance_factor), decreasing = TRUE) else if (!is.null(groups)) sort(table(groups), decreasing = TRUE) else NULL
   )
   attr(out, "metadata") <- metadata
   class(out) <- c("lhwr_poincare_map", class(out))
@@ -1075,10 +1167,23 @@ lhwr_map_scale <- function(x, min_out = 0.45, max_out = 2.8) {
 }
 
 lhwr_map_point_colors <- function(values, groups, point_palette, group_palette,
-                                  significant = NULL, significance_colors = NULL) {
+                                  significant = NULL,
+                                  significance_adjusted = NULL,
+                                  significance_direction = NULL,
+                                  significance_colors = NULL,
+                                  signed_significance_colors = NULL,
+                                  adjusted_significance_colors = NULL) {
   if (!is.null(significant)) {
-    f <- lhwr_significance_factor(significant)
-    cols <- rep(significance_colors, length.out = 2L)
+    if (!is.null(significance_adjusted)) {
+      f <- lhwr_adjusted_significance_factor(significant, significance_adjusted)
+      cols <- rep(adjusted_significance_colors, length.out = 3L)
+    } else if (is.null(significance_direction)) {
+      f <- lhwr_significance_factor(significant)
+      cols <- rep(significance_colors, length.out = 2L)
+    } else {
+      f <- lhwr_signed_significance_factor(significant, significance_direction)
+      cols <- rep(signed_significance_colors, length.out = 3L)
+    }
     names(cols) <- levels(f)
     return(unname(cols[as.character(f)]))
   }
@@ -1088,9 +1193,13 @@ lhwr_map_point_colors <- function(values, groups, point_palette, group_palette,
     lev <- levels(f)
     if (is.null(group_palette)) {
       group_palette <- grDevices::hcl.colors(length(lev), "Dark 3")
+      names(group_palette) <- lev
+    } else if (!is.null(names(group_palette)) && all(lev %in% names(group_palette))) {
+      group_palette <- group_palette[lev]
+    } else {
+      group_palette <- rep(group_palette, length.out = length(lev))
+      names(group_palette) <- lev
     }
-    group_palette <- rep(group_palette, length.out = length(lev))
-    names(group_palette) <- lev
     return(unname(group_palette[as.character(f)]))
   }
   rep("#2A9D8F", length.out = if (!is.null(values)) length(values) else if (!is.null(groups)) length(groups) else 1L)
@@ -1139,7 +1248,7 @@ lhwr_map_edges <- function(edges, edge_weight, node_id, px, py,
 lhwr_map_disk_background <- function(title, background_col, boundary_col,
                                      degree_cex = 0.50, title_cex = 1.20) {
   graphics::plot.new()
-  graphics::plot.window(xlim = c(-1.08, 1.08), ylim = c(-1.24, 1.08), asp = 1)
+  graphics::plot.window(xlim = c(-1.08, 1.08), ylim = c(-1.36, 1.08), asp = 1)
   theta <- seq(0, 2 * pi, length.out = 720)
   graphics::polygon(cos(theta), sin(theta), col = background_col, border = NA)
   graphics::symbols(0, 0, circles = 1, inches = FALSE, add = TRUE, bg = NA, fg = boundary_col, lwd = 11)
@@ -1189,6 +1298,28 @@ lhwr_significance_factor <- function(significant) {
   factor(out, levels = c("Not significant", "Significant"))
 }
 
+lhwr_signed_significance_factor <- function(significant, direction) {
+  significant <- as.logical(significant)
+  significant[is.na(significant)] <- FALSE
+  direction <- as.numeric(direction)
+  out <- rep("Not significant", length(significant))
+  out[significant & is.finite(direction) & direction < 0] <- "Negative significant"
+  out[significant & is.finite(direction) & direction > 0] <- "Positive significant"
+  factor(out, levels = c("Not significant", "Negative significant", "Positive significant"))
+}
+
+lhwr_adjusted_significance_factor <- function(significant, adjusted) {
+  significant <- as.logical(significant)
+  adjusted <- as.logical(adjusted)
+  significant[is.na(significant)] <- FALSE
+  adjusted[is.na(adjusted)] <- FALSE
+  adjusted <- adjusted & significant
+  out <- rep("Not significant", length(significant))
+  out[significant & !adjusted] <- "Raw only"
+  out[adjusted] <- "Raw and BH"
+  factor(out, levels = c("Not significant", "Raw only", "Raw and BH"))
+}
+
 lhwr_map_significance_legend <- function(significance_colors,
                                          title = "Local significance",
                                          x0 = -0.42, x1 = 0.42,
@@ -1218,25 +1349,73 @@ lhwr_map_group_legend <- function(groups, cols, x = 1.08, y = 0.92,
   f <- as.factor(groups)
   lev <- levels(f)
   col_map <- tapply(cols, f, function(z) z[1L])
+  missing_cols <- is.na(col_map)
+  if (any(missing_cols)) {
+    known_pal <- c(
+      "Not significant" = "#C9C9C9",
+      "Significant" = "#2E7D32",
+      "Raw only" = "#E69F00",
+      "Raw and BH" = "#1B7837",
+      "Negative significant" = "#6A3D9A",
+      "Positive significant" = "#1B7837",
+      "High-High" = "#D7191C",
+      "Low-Low" = "#2C7BB6",
+      "Low-High" = "#ABD9E9",
+      "High-Low" = "#FDAE61"
+    )
+    common <- intersect(names(col_map)[missing_cols], names(known_pal))
+    col_map[common] <- known_pal[common]
+  }
+  missing_cols <- is.na(col_map)
+  if (any(missing_cols) && exists("lisa_cluster_palette", mode = "function")) {
+    lisa_pal <- lisa_cluster_palette()
+    common <- intersect(names(col_map)[missing_cols], names(lisa_pal))
+    col_map[common] <- lisa_pal[common]
+  }
+  col_map[is.na(col_map)] <- "#F7F7F7"
 
   if (position == "bottom") {
-    n_col <- min(3L, length(lev))
+    n_col <- if (length(lev) <= 5L) length(lev) else min(4L, length(lev))
     rows <- ceiling(length(lev) / n_col)
-    x0 <- -0.60
-    y0 <- -1.225
-    col_w <- 0.39
-    row_h <- 0.038
-    box_w <- n_col * col_w + 0.08
-    box_h <- 0.080 + rows * row_h
-    graphics::text(x0 + box_w / 2 - 0.02, y0 + box_h - 0.020, labels = title,
+    y0 <- if (rows > 1L) -1.315 else -1.225
+    row_h <- 0.045
+    text_cex <- cex * 0.88
+    point_gap <- 0.030
+    item_gap <- 0.135
+    point_w <- 0.032
+    label_w <- graphics::strwidth(lev, cex = text_cex, units = "user")
+    if (rows == 1L) {
+      item_w <- point_w + point_gap + label_w
+      total_w <- sum(item_w) + item_gap * (length(lev) - 1L)
+      x0 <- -total_w / 2
+      box_w <- total_w
+    } else {
+      col_w <- if (n_col >= 5L) 0.36 else 0.39
+      box_w <- n_col * col_w + 0.08
+      x0 <- -box_w / 2
+    }
+    box_h <- 0.105 + rows * row_h
+    graphics::text(x0 + box_w / 2, y0 + box_h - 0.012, labels = title,
                    adj = c(0.5, 0.5), cex = cex * 0.90, font = 2, col = "#263238")
+    if (rows == 1L) {
+      cursor <- x0
+      for (i in seq_along(lev)) {
+        px <- cursor + point_w / 2
+        py <- y0 + box_h - 0.085
+        graphics::points(px, py, pch = 21, bg = col_map[[lev[i]]], col = "#263238", cex = max(1.25, cex * 1.35), lwd = 0.46)
+        graphics::text(px + point_gap, py, labels = lev[i], adj = c(0, 0.5), cex = text_cex, col = "#263238")
+        cursor <- cursor + item_w[i] + item_gap
+      }
+      return(invisible(NULL))
+    }
+    col_w <- if (n_col >= 5L) 0.36 else 0.39
     for (i in seq_along(lev)) {
       row <- floor((i - 1L) / n_col)
       col <- (i - 1L) %% n_col
       px <- x0 + 0.038 + col * col_w
-      py <- y0 + box_h - 0.055 - row * row_h
-      graphics::points(px, py, pch = 21, bg = col_map[[lev[i]]], col = "#263238", cex = 0.55, lwd = 0.32)
-      graphics::text(px + 0.027, py, labels = lev[i], adj = c(0, 0.5), cex = cex * 0.70, col = "#263238")
+      py <- y0 + box_h - 0.085 - row * row_h
+      graphics::points(px, py, pch = 21, bg = col_map[[lev[i]]], col = "#263238", cex = max(1.25, cex * 1.35), lwd = 0.46)
+      graphics::text(px + 0.027, py, labels = lev[i], adj = c(0, 0.5), cex = text_cex, col = "#263238")
     }
     return(invisible(NULL))
   }

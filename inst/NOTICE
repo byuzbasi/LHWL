@@ -1,0 +1,22 @@
+Third-party data notice
+=======================
+
+The packaged data object `wdi_lhwr` is derived from the World Bank World
+Development Indicators (WDI):
+
+https://datacatalog.worldbank.org/search/dataset/0037712/world-development-indicators
+
+The WDI catalog identifies the dataset as licensed under the Creative Commons
+Attribution 4.0 International license (CC BY 4.0):
+
+https://creativecommons.org/licenses/by/4.0/
+
+Attribution: World Bank, World Development Indicators.
+
+The included object covers 2010--2024 and contains selected WDI indicators,
+country identifiers, transformed variables, and Lorentz-model coordinates.
+The transformations are documented in `?wdi_lhwr`. The Lorentz coordinates
+use log constant-price GDP per capita and trade openness with the frozen
+location and scale constants recorded there. The package authors prepared the
+derived object and are responsible for the transformation and any errors in
+it; the World Bank does not endorse the package or its analysis.

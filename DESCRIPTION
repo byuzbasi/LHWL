@@ -1,18 +1,33 @@
-Package: LHWR
+Package: LHWL
 Type: Package
-Title: Lorentz Hyperbolic Weighted Regression
-Version: 0.2.0
+Title: Lorentz Hyperbolic Weighted Learning
+Version: 0.3.1
 Authors@R: c(
     person("Bahadır", "Yüzbaşı", role = c("aut", "cre"),
            email = "b.yzb@hotmail.com"),
-    person("Zuhal Küçükarslan", "Yüzbaşı", role = "aut")
+    person("Zühal", "Küçükarslan Yüzbaşı", role = "aut")
   )
 Author: Bahadır Yüzbaşı [aut, cre],
-  Zuhal Küçükarslan Yüzbaşı [aut]
+  Zühal Küçükarslan Yüzbaşı [aut]
 Maintainer: Bahadır Yüzbaşı <b.yzb@hotmail.com>
-Description: Provides tools for Lorentz Hyperbolic Weighted Regression (LHWR), a local weighted regression framework on the Lorentz hyperboloid. Locality is defined through Lorentz-hyperboloid distances and can be applied to geographic coordinates, latent feature maps, similarity embeddings, network embeddings, functional data summaries, and shape-analysis scores. The package provides Lorentz geometry utilities, hyperbolic distance computation, kernel weighting, bandwidth selection by AICc or cross validation, local weighted regression fitting, diagnostics, plotting, and simulation helpers.
-License: MIT + file LICENSE
+Description: Implements local regression on the two-dimensional Lorentz
+    hyperboloid, with ordinary real-valued responses and predictors and
+    representation-based kernel weights. Lorentz Hyperbolic Weighted
+    Regression (LHWR) is the unpenalized regression foundation; Lorentz
+    Hyperbolic Weighted Penalized Regression (LHWPR) extends it with ridge,
+    lasso, elastic net, MCP, and SCAD paths. Gaussian and binomial response
+    families are supported. Tools include feature and network representation
+    constructors, stable hyperbolic and tangent-space distances, bandwidth
+    selection, joint bandwidth-regularization tuning, convergence diagnostics,
+    coefficient and selection maps, and simulation helpers. Representations
+    need not be geographic. Penalized selection summaries are distinct from
+    post-selection statistical inference.
+License: GPL (>= 3)
+URL: https://github.com/byuzbasi/LHWL
+BugReports: https://github.com/byuzbasi/LHWL/issues
 Encoding: UTF-8
+Language: en-US
+SystemRequirements: C++17
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Depends:
@@ -32,3 +47,4 @@ Suggests:
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
 VignetteBuilder: knitr
+Config/Needs/website: pkgdown, yaml

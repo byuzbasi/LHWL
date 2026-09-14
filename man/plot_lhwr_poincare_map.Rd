@@ -9,6 +9,8 @@ plot_lhwr_poincare_map(
   values = NULL,
   groups = NULL,
   significant = NULL,
+  significance_adjusted = NULL,
+  significance_direction = NULL,
   labels = NULL,
   node_names = NULL,
   sizes = NULL,
@@ -40,6 +42,10 @@ plot_lhwr_poincare_map(
   point_palette = "Blue-Red 3",
   group_palette = NULL,
   significance_colors = c(`Not significant` = "#BDBDBD", Significant = "#2E7D32"),
+  signed_significance_colors = c(`Not significant` = "#C9C9C9", `Negative significant` =
+    "#7B3294", `Positive significant` = "#2E7D32"),
+  adjusted_significance_colors = c(`Not significant` = "#C9C9C9", `Raw only` = "#E69F00",
+    `Raw and BH` = "#1B7837"),
   significance_label = "Local significance",
   background_col = "#F6F1E7",
   boundary_col = "#0A9396",
@@ -70,12 +76,26 @@ Ignored when \code{values} or \code{significant} is supplied.}
 significant/non-significant using \code{significance_colors}; useful for local
 p-value maps.}
 
+\item{significance_adjusted}{Optional logical vector used together with
+\code{significant}. If supplied, local significance is classified as not
+significant, raw-only significant, or significant after adjustment. This is
+useful for comparing raw local p-values with multiplicity-adjusted
+p-values without drawing a second map.}
+
+\item{significance_direction}{Optional numeric vector used together with
+\code{significant}. Negative values are shown as negative significant, positive
+values as positive significant, and non-significant locations remain grey.
+This is useful for local coefficient maps where both significance and sign
+should be visible.}
+
 \item{labels}{Optional labels for points, for example country ISO3 codes.}
 
 \item{node_names}{Optional longer node names used in map summaries.}
 
 \item{sizes}{Optional nonnegative numeric vector for point sizes. A common
-choice is \code{log1p(total_trade)} or a node degree/strength measure.}
+choice is original total trade or a node degree/strength measure. The map
+already applies \code{log1p} before rescaling sizes; do not log-transform twice
+unless that additional visual transformation is explicitly intended.}
 
 \item{edges}{Optional edge list as a data frame or matrix with two columns.
 Entries may be integer row indices or labels matching \code{node_id}.}
@@ -145,6 +165,14 @@ arguments such as \code{label_cex} or \code{legend_cex} override values in this 
 \item{significance_colors}{Named or unnamed length-2 color vector for
 \code{significant = FALSE} and \code{significant = TRUE}, respectively.}
 
+\item{signed_significance_colors}{Named or unnamed length-3 color vector for
+not significant, negative significant, and positive significant locations
+when both \code{significant} and \code{significance_direction} are supplied.}
+
+\item{adjusted_significance_colors}{Named or unnamed length-3 color vector
+for not significant, raw-only significant, and raw-and-adjusted significant
+locations when both \code{significant} and \code{significance_adjusted} are supplied.}
+
 \item{significance_label}{Legend title used when \code{significant} is supplied.}
 
 \item{background_col}{Disk background color.}
@@ -165,9 +193,13 @@ legend below the disk when side placement overlaps the plot.}
 
 \item{show_info}{Logical; draw an explanatory annotation box.}
 
-\item{output_file}{Optional path. If supplied, a PNG is written to this file.}
+\item{output_file}{Optional output path. PDF and EPS/PS extensions select
+the corresponding device; other extensions use PNG. Existing files may
+be overwritten: check the target first if preservation is required.}
 
-\item{width, height, res}{PNG device settings used when \code{output_file} is given.}
+\item{width, height, res}{Width and height in pixels and resolution in pixels
+per inch. PDF/EPS dimensions in inches are \code{width/res} and \code{height/res}.
+These differ from the inch-based hyperboloid output settings.}
 
 \item{...}{Additional graphical arguments currently ignored.}
 }

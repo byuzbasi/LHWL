@@ -26,9 +26,17 @@ hyperbolic radius.}
 
 \item{labels}{Optional point labels.}
 
-\item{title}{Optional title. Use \code{NULL} for manuscript-style figures.}
+\item{title}{Optional title. \code{NULL} suppresses the Poincare title but selects
+a default title for hyperboloid/radial views; use \code{""} for those views
+when the title is provided by a manuscript caption.}
 
 \item{palette}{HCL palette for numeric values.}
+
+\item{show_size_legend}{Logical; draw the point-size legend in the Poincare
+view.}
+
+\item{show_info}{Logical; draw the explanatory information box in the
+Poincare view.}
 
 \item{...}{Additional arguments passed to the underlying plotting function.}
 }

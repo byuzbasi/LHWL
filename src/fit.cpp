@@ -4,6 +4,8 @@
 #include <omp.h>
 #endif
 
+#include "lorentz_distance.h"
+
 using namespace Rcpp;
 
 namespace {
@@ -57,19 +59,15 @@ double lorentz_distance_rows(const arma::mat& Z,
                              arma::uword i,
                              arma::uword j,
                              double tol) {
-  const double inner = -Z(i, 0) * Z(j, 0) + Z(i, 1) * Z(j, 1) + Z(i, 2) * Z(j, 2);
-  double arg = -inner;
-  if (!R_finite(arg)) {
-    stop("Invalid Lorentz distance: non-finite acosh argument.");
+  static_cast<void>(tol);
+  const double distance = lhwl_lorentz_distance(
+    Z(i, 0), Z(i, 1), Z(i, 2),
+    Z(j, 0), Z(j, 1), Z(j, 2)
+  );
+  if (!R_finite(distance)) {
+    stop("Invalid Lorentz-model coordinates for distance calculation.");
   }
-  if (arg < 1.0) {
-    if (arg >= 1.0 - tol) {
-      arg = 1.0;
-    } else {
-      stop("Invalid Lorentz distance: acosh argument is below 1.");
-    }
-  }
-  return std::acosh(arg);
+  return distance;
 }
 
 double kernel_weight_one(double d, double bw, const std::string& kernel) {
@@ -524,9 +522,170 @@ double evaluate_bw_candidate(const arma::vec& y,
   return summary.score;
 }
 
+struct FTestMoments {
+  arma::vec q_diag;
+  double delta1;
+  double delta2;
+  arma::vec gamma1;
+  arma::vec gamma2;
+};
+
+double sparse_frobenius_squared(const arma::sp_mat& A) {
+  double out = 0.0;
+  for (arma::sp_mat::const_iterator it = A.begin(); it != A.end(); ++it) {
+    out += (*it) * (*it);
+  }
+  return out;
+}
+
+void coefficient_operator_moments(const arma::mat& B,
+                                  double& gamma1,
+                                  double& gamma2) {
+  const double n = static_cast<double>(B.n_rows);
+  arma::vec column_sums = B.t() * arma::ones<arma::vec>(B.n_rows);
+  const double column_sum_sq = arma::dot(column_sums, column_sums);
+  arma::mat gram = B.t() * B;
+  arma::vec B_column_sums = B * column_sums;
+
+  gamma1 = (arma::accu(arma::square(B)) - column_sum_sq / n) / n;
+  gamma2 = (arma::accu(arma::square(gram)) -
+    2.0 * arma::dot(B_column_sums, B_column_sums) / n +
+    column_sum_sq * column_sum_sq / (n * n)) / (n * n);
+}
+
+void coefficient_operator_moments(const arma::sp_mat& B,
+                                  double& gamma1,
+                                  double& gamma2) {
+  const double n = static_cast<double>(B.n_rows);
+  arma::vec column_sums = B.t() * arma::ones<arma::vec>(B.n_rows);
+  const double column_sum_sq = arma::dot(column_sums, column_sums);
+  arma::sp_mat gram = B.t() * B;
+  arma::vec B_column_sums = B * column_sums;
+
+  gamma1 = (sparse_frobenius_squared(B) - column_sum_sq / n) / n;
+  gamma2 = (sparse_frobenius_squared(gram) -
+    2.0 * arma::dot(B_column_sums, B_column_sums) / n +
+    column_sum_sq * column_sum_sq / (n * n)) / (n * n);
+}
+
+FTestMoments full_trace_moments_dense(
+    const arma::mat& S,
+    const std::vector<arma::mat>& coefficient_operators) {
+  const arma::uword n = S.n_rows;
+  const arma::uword p = coefficient_operators.size();
+  arma::mat residual_operator = arma::eye<arma::mat>(n, n) - S;
+  arma::mat Q = residual_operator.t() * residual_operator;
+
+  FTestMoments out;
+  out.q_diag = Q.diag();
+  out.delta1 = arma::trace(Q);
+  out.delta2 = arma::accu(arma::square(Q));
+  out.gamma1.set_size(p);
+  out.gamma2.set_size(p);
+  for (arma::uword k = 0; k < p; ++k) {
+    coefficient_operator_moments(
+      coefficient_operators[k], out.gamma1[k], out.gamma2[k]
+    );
+  }
+  return out;
+}
+
+FTestMoments full_trace_moments_sparse(
+    const arma::umat& locations,
+    const arma::vec& smoother_values,
+    const arma::mat& coefficient_values,
+    arma::uword n) {
+  const arma::uword p = coefficient_values.n_rows;
+  arma::sp_mat S(
+    locations, smoother_values, n, n,
+    true, true
+  );
+  arma::sp_mat residual_operator = arma::speye<arma::sp_mat>(n, n) - S;
+  arma::sp_mat Q = residual_operator.t() * residual_operator;
+
+  FTestMoments out;
+  out.q_diag = arma::vec(Q.diag());
+  out.delta1 = arma::accu(out.q_diag);
+  out.delta2 = sparse_frobenius_squared(Q);
+  out.gamma1.set_size(p);
+  out.gamma2.set_size(p);
+  for (arma::uword k = 0; k < p; ++k) {
+    arma::vec values = coefficient_values.row(k).t();
+    arma::sp_mat B(
+      locations, values, n, n,
+      true, true
+    );
+    coefficient_operator_moments(B, out.gamma1[k], out.gamma2[k]);
+  }
+  return out;
+}
+
+List assemble_f_test_result(const arma::mat& beta_hat,
+                            double RSS_full,
+                            double RSS_ols,
+                            double DF_ols,
+                            const FTestMoments& moments,
+                            double delta1_hat) {
+  const arma::uword n = beta_hat.n_rows;
+  const arma::uword p = beta_hat.n_cols;
+  const double delta1 = moments.delta1;
+  const double delta2 = moments.delta2;
+  const double sigma2_delta1 = RSS_full / delta1;
+
+  const double F1 = (RSS_full / delta1) / (RSS_ols / DF_ols);
+  const double F1_df1 = delta1 * delta1 / delta2;
+  const double F1_df2 = DF_ols;
+  const double F1_p = R::pf(F1, F1_df1, F1_df2, 1, 0);
+
+  const double eta1 = DF_ols - delta1;
+  const double eta2 = DF_ols - 2.0 * delta1 + delta2;
+  const double F2 = ((RSS_ols - RSS_full) / eta1) / (RSS_ols / DF_ols);
+  const double F2_df1 = eta1 * eta1 / eta2;
+  const double F2_df2 = DF_ols;
+  const double F2_p = R::pf(F2, F2_df1, F2_df2, 0, 0);
+
+  arma::vec F3(p, arma::fill::value(NA_REAL));
+  arma::vec F3_df1(p, arma::fill::value(NA_REAL));
+  arma::vec F3_df2(p, arma::fill::value(F1_df1));
+  arma::vec F3_p(p, arma::fill::value(NA_REAL));
+  for (arma::uword k = 0; k < p; ++k) {
+    arma::vec beta_k = beta_hat.col(k);
+    const double beta_sum = arma::accu(beta_k);
+    const double Vk2 = (arma::accu(arma::square(beta_k)) -
+      beta_sum * beta_sum / static_cast<double>(n)) / static_cast<double>(n);
+
+    F3[k] = (Vk2 / moments.gamma1[k]) / sigma2_delta1;
+    F3_df1[k] = moments.gamma1[k] * moments.gamma1[k] / moments.gamma2[k];
+    F3_p[k] = R::pf(F3[k], F3_df1[k], F3_df2[k], 0, 0);
+  }
+
+  return List::create(
+    _["F1"] = F1,
+    _["F1_df1"] = F1_df1,
+    _["F1_df2"] = F1_df2,
+    _["F1_p"] = F1_p,
+    _["F2"] = F2,
+    _["F2_df1"] = F2_df1,
+    _["F2_df2"] = F2_df2,
+    _["F2_p"] = F2_p,
+    _["F3"] = F3,
+    _["F3_df1"] = F3_df1,
+    _["F3_df2"] = F3_df2,
+    _["F3_p"] = F3_p,
+    _["q_diag"] = moments.q_diag,
+    _["L_delta1"] = delta1,
+    _["L_delta2"] = delta2,
+    _["delta1"] = delta1,
+    _["delta1_hat"] = delta1_hat,
+    _["gamma1"] = moments.gamma1,
+    _["gamma2"] = moments.gamma2,
+    _["moment_method"] = "full_trace"
+  );
+}
+
 } // namespace
 
-extern "C" SEXP _LHWR_hgwr_fit_cpp(SEXP ySEXP,
+extern "C" SEXP _LHWL_hgwr_fit_cpp(SEXP ySEXP,
                                            SEXP XSEXP,
                                            SEXP DSEXP,
                                            SEXP bwSEXP,
@@ -600,7 +759,7 @@ extern "C" SEXP _LHWR_hgwr_fit_cpp(SEXP ySEXP,
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_hgwr_fit_knn_cpp(SEXP ySEXP,
+extern "C" SEXP _LHWL_hgwr_fit_knn_cpp(SEXP ySEXP,
                                                SEXP XSEXP,
                                                SEXP ZSEXP,
                                                SEXP kSEXP,
@@ -725,7 +884,7 @@ extern "C" SEXP _LHWR_hgwr_fit_knn_cpp(SEXP ySEXP,
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_hgwr_cv_score_cpp(SEXP ySEXP,
+extern "C" SEXP _LHWL_hgwr_cv_score_cpp(SEXP ySEXP,
                                                 SEXP XSEXP,
                                                 SEXP DSEXP,
                                                 SEXP bwSEXP,
@@ -766,7 +925,7 @@ extern "C" SEXP _LHWR_hgwr_cv_score_cpp(SEXP ySEXP,
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_hgwr_f_tests_cpp(SEXP ySEXP,
+extern "C" SEXP _LHWL_hgwr_f_tests_cpp(SEXP ySEXP,
                                                 SEXP XSEXP,
                                                 SEXP DSEXP,
                                                 SEXP bwSEXP,
@@ -802,9 +961,12 @@ extern "C" SEXP _LHWR_hgwr_f_tests_cpp(SEXP ySEXP,
     stop("`bw` must be scalar or have one value per observation.");
   }
 
-  arma::vec q_diag(n, arma::fill::ones);
-  arma::mat B_sum(p, n, arma::fill::zeros);
-  arma::mat B_sumsq(p, n, arma::fill::zeros);
+  arma::mat S(n, n, arma::fill::zeros);
+  std::vector<arma::mat> coefficient_operators;
+  coefficient_operators.reserve(p);
+  for (arma::uword k = 0; k < p; ++k) {
+    coefficient_operators.push_back(arma::mat(n, n, arma::fill::zeros));
+  }
 
   for (arma::uword i = 0; i < n; ++i) {
     arma::vec w = kernel_weights(D.col(i), bw[i], kernel);
@@ -814,73 +976,25 @@ extern "C" SEXP _LHWR_hgwr_f_tests_cpp(SEXP ySEXP,
     arma::mat C = XtWX_inv * Xw.t();
     arma::rowvec s_row = X.row(i) * C;
 
-    q_diag += arma::square(s_row.t());
-    q_diag[i] -= 2.0 * s_row[i];
-
-    B_sum += C;
-    B_sumsq += arma::square(C);
+    S.row(i) = s_row;
+    for (arma::uword k = 0; k < p; ++k) {
+      coefficient_operators[k].row(i) = C.row(k);
+    }
   }
 
-  const double L_delta1 = arma::accu(q_diag);
-  const double L_delta2 = arma::accu(arma::square(q_diag));
-  const double delta1 = static_cast<double>(n) - 2.0 * trS + trStS;
-  const double sigma2_delta1 = RSS_full / delta1;
-
-  const double F1 = (RSS_full / L_delta1) / (RSS_ols / DF_ols);
-  const double F1_df1 = L_delta1 * L_delta1 / L_delta2;
-  const double F1_df2 = DF_ols;
-  const double F1_p = R::pf(F1, F1_df1, F1_df2, 1, 0);
-
-  const double F2 = ((RSS_ols - RSS_full) / (DF_ols - L_delta1)) / (RSS_ols / DF_ols);
-  const double F2_df1 = (DF_ols - L_delta1) * (DF_ols - L_delta1) /
-    (DF_ols - 2.0 * L_delta1 + L_delta2);
-  const double F2_df2 = DF_ols;
-  const double F2_p = R::pf(F2, F2_df1, F2_df2, 0, 0);
-
-  arma::vec F3(p, arma::fill::value(NA_REAL));
-  arma::vec F3_df1(p, arma::fill::value(NA_REAL));
-  arma::vec F3_df2(p, arma::fill::value(F1_df1));
-  arma::vec F3_p(p, arma::fill::value(NA_REAL));
-
-  for (arma::uword k = 0; k < p; ++k) {
-    arma::vec beta_k = beta_hat.col(k);
-    const double beta_sum = arma::accu(beta_k);
-    const double Vk2 = (arma::accu(arma::square(beta_k)) -
-      beta_sum * beta_sum / static_cast<double>(n)) / static_cast<double>(n);
-
-    arma::rowvec diag_BJ = (B_sumsq.row(k) -
-      arma::square(B_sum.row(k)) / static_cast<double>(n)) / static_cast<double>(n);
-    const double gamma1 = arma::accu(diag_BJ);
-    const double gamma2 = arma::accu(arma::square(diag_BJ));
-    const double numdf = gamma1 * gamma1 / gamma2;
-
-    F3[k] = (Vk2 / gamma1) / sigma2_delta1;
-    F3_df1[k] = numdf;
-    F3_p[k] = R::pf(F3[k], F3_df1[k], F3_df2[k], 0, 0);
-  }
-
-  return List::create(
-    _["F1"] = F1,
-    _["F1_df1"] = F1_df1,
-    _["F1_df2"] = F1_df2,
-    _["F1_p"] = F1_p,
-    _["F2"] = F2,
-    _["F2_df1"] = F2_df1,
-    _["F2_df2"] = F2_df2,
-    _["F2_p"] = F2_p,
-    _["F3"] = F3,
-    _["F3_df1"] = F3_df1,
-    _["F3_df2"] = F3_df2,
-    _["F3_p"] = F3_p,
-    _["q_diag"] = q_diag,
-    _["L_delta1"] = L_delta1,
-    _["L_delta2"] = L_delta2,
-    _["delta1"] = delta1
+  FTestMoments moments = full_trace_moments_dense(S, coefficient_operators);
+  return assemble_f_test_result(
+    beta_hat,
+    RSS_full,
+    RSS_ols,
+    DF_ols,
+    moments,
+    static_cast<double>(n) - 2.0 * trS + trStS
   );
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_hgwr_f_tests_knn_cpp(SEXP ySEXP,
+extern "C" SEXP _LHWL_hgwr_f_tests_knn_cpp(SEXP ySEXP,
                                                     SEXP XSEXP,
                                                     SEXP ZSEXP,
                                                     SEXP kSEXP,
@@ -921,11 +1035,12 @@ extern "C" SEXP _LHWR_hgwr_f_tests_knn_cpp(SEXP ySEXP,
   std::vector<std::vector<std::pair<double, int> > > neighbor_lists =
     lorentz_neighbor_lists(Z, k, tol);
 
-  arma::vec q_diag(n, arma::fill::ones);
-  arma::mat B_sum(p, n, arma::fill::zeros);
-  arma::mat B_sumsq(p, n, arma::fill::zeros);
-
   const arma::uword m = static_cast<arma::uword>(k + 1);
+  const arma::uword n_entries = n * m;
+  arma::umat locations(2, n_entries, arma::fill::none);
+  arma::vec smoother_values(n_entries, arma::fill::none);
+  arma::mat coefficient_values(p, n_entries, arma::fill::none);
+
   for (arma::uword i = 0; i < n; ++i) {
     const std::vector<std::pair<double, int> >& neighbors = neighbor_lists[i];
     const double bw_i = neighbors.back().first;
@@ -957,73 +1072,29 @@ extern "C" SEXP _LHWR_hgwr_f_tests_knn_cpp(SEXP ySEXP,
 
     for (arma::uword h = 0; h < m; ++h) {
       const arma::uword j = idx[h];
-      q_diag[j] += s_row[h] * s_row[h];
-      B_sum.col(j) += C.col(h);
-      B_sumsq.col(j) += arma::square(C.col(h));
+      const arma::uword pos = i * m + h;
+      locations(0, pos) = i;
+      locations(1, pos) = j;
+      smoother_values[pos] = s_row[h];
+      coefficient_values.col(pos) = C.col(h);
     }
-    q_diag[i] -= 2.0 * s_row[0];
   }
 
-  const double L_delta1 = arma::accu(q_diag);
-  const double L_delta2 = arma::accu(arma::square(q_diag));
-  const double delta1 = static_cast<double>(n) - 2.0 * trS + trStS;
-  const double sigma2_delta1 = RSS_full / delta1;
-
-  const double F1 = (RSS_full / L_delta1) / (RSS_ols / DF_ols);
-  const double F1_df1 = L_delta1 * L_delta1 / L_delta2;
-  const double F1_df2 = DF_ols;
-  const double F1_p = R::pf(F1, F1_df1, F1_df2, 1, 0);
-
-  const double F2 = ((RSS_ols - RSS_full) / (DF_ols - L_delta1)) / (RSS_ols / DF_ols);
-  const double F2_df1 = (DF_ols - L_delta1) * (DF_ols - L_delta1) /
-    (DF_ols - 2.0 * L_delta1 + L_delta2);
-  const double F2_df2 = DF_ols;
-  const double F2_p = R::pf(F2, F2_df1, F2_df2, 0, 0);
-
-  arma::vec F3(p, arma::fill::value(NA_REAL));
-  arma::vec F3_df1(p, arma::fill::value(NA_REAL));
-  arma::vec F3_df2(p, arma::fill::value(F1_df1));
-  arma::vec F3_p(p, arma::fill::value(NA_REAL));
-
-  for (arma::uword kk = 0; kk < p; ++kk) {
-    arma::vec beta_k = beta_hat.col(kk);
-    const double beta_sum = arma::accu(beta_k);
-    const double Vk2 = (arma::accu(arma::square(beta_k)) -
-      beta_sum * beta_sum / static_cast<double>(n)) / static_cast<double>(n);
-
-    arma::rowvec diag_BJ = (B_sumsq.row(kk) -
-      arma::square(B_sum.row(kk)) / static_cast<double>(n)) / static_cast<double>(n);
-    const double gamma1 = arma::accu(diag_BJ);
-    const double gamma2 = arma::accu(arma::square(diag_BJ));
-    const double numdf = gamma1 * gamma1 / gamma2;
-
-    F3[kk] = (Vk2 / gamma1) / sigma2_delta1;
-    F3_df1[kk] = numdf;
-    F3_p[kk] = R::pf(F3[kk], F3_df1[kk], F3_df2[kk], 0, 0);
-  }
-
-  return List::create(
-    _["F1"] = F1,
-    _["F1_df1"] = F1_df1,
-    _["F1_df2"] = F1_df2,
-    _["F1_p"] = F1_p,
-    _["F2"] = F2,
-    _["F2_df1"] = F2_df1,
-    _["F2_df2"] = F2_df2,
-    _["F2_p"] = F2_p,
-    _["F3"] = F3,
-    _["F3_df1"] = F3_df1,
-    _["F3_df2"] = F3_df2,
-    _["F3_p"] = F3_p,
-    _["q_diag"] = q_diag,
-    _["L_delta1"] = L_delta1,
-    _["L_delta2"] = L_delta2,
-    _["delta1"] = delta1
+  FTestMoments moments = full_trace_moments_sparse(
+    locations, smoother_values, coefficient_values, n
+  );
+  return assemble_f_test_result(
+    beta_hat,
+    RSS_full,
+    RSS_ols,
+    DF_ols,
+    moments,
+    static_cast<double>(n) - 2.0 * trS + trStS
   );
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_hgwr_f_tests_knn_precomputed_cpp(SEXP ySEXP,
+extern "C" SEXP _LHWL_hgwr_f_tests_knn_precomputed_cpp(SEXP ySEXP,
                                                                 SEXP XSEXP,
                                                                 SEXP indexSEXP,
                                                                 SEXP distanceSEXP,
@@ -1059,11 +1130,12 @@ extern "C" SEXP _LHWR_hgwr_f_tests_knn_precomputed_cpp(SEXP ySEXP,
     stop("kNN objects must contain between 2 and n - 1 neighbors.");
   }
 
-  arma::vec q_diag(n, arma::fill::ones);
-  arma::mat B_sum(p, n, arma::fill::zeros);
-  arma::mat B_sumsq(p, n, arma::fill::zeros);
-
   const arma::uword m = static_cast<arma::uword>(k + 1);
+  const arma::uword n_entries = n * m;
+  arma::umat locations(2, n_entries, arma::fill::none);
+  arma::vec smoother_values(n_entries, arma::fill::none);
+  arma::mat coefficient_values(p, n_entries, arma::fill::none);
+
   for (arma::uword i = 0; i < n; ++i) {
     const double bw_i = distance(i, k - 1);
     if (!R_finite(bw_i) || bw_i <= 0.0) {
@@ -1098,73 +1170,29 @@ extern "C" SEXP _LHWR_hgwr_f_tests_knn_precomputed_cpp(SEXP ySEXP,
 
     for (arma::uword h = 0; h < m; ++h) {
       const arma::uword j = idx[h];
-      q_diag[j] += s_row[h] * s_row[h];
-      B_sum.col(j) += C.col(h);
-      B_sumsq.col(j) += arma::square(C.col(h));
+      const arma::uword pos = i * m + h;
+      locations(0, pos) = i;
+      locations(1, pos) = j;
+      smoother_values[pos] = s_row[h];
+      coefficient_values.col(pos) = C.col(h);
     }
-    q_diag[i] -= 2.0 * s_row[0];
   }
 
-  const double L_delta1 = arma::accu(q_diag);
-  const double L_delta2 = arma::accu(arma::square(q_diag));
-  const double delta1 = static_cast<double>(n) - 2.0 * trS + trStS;
-  const double sigma2_delta1 = RSS_full / delta1;
-
-  const double F1 = (RSS_full / L_delta1) / (RSS_ols / DF_ols);
-  const double F1_df1 = L_delta1 * L_delta1 / L_delta2;
-  const double F1_df2 = DF_ols;
-  const double F1_p = R::pf(F1, F1_df1, F1_df2, 1, 0);
-
-  const double F2 = ((RSS_ols - RSS_full) / (DF_ols - L_delta1)) / (RSS_ols / DF_ols);
-  const double F2_df1 = (DF_ols - L_delta1) * (DF_ols - L_delta1) /
-    (DF_ols - 2.0 * L_delta1 + L_delta2);
-  const double F2_df2 = DF_ols;
-  const double F2_p = R::pf(F2, F2_df1, F2_df2, 0, 0);
-
-  arma::vec F3(p, arma::fill::value(NA_REAL));
-  arma::vec F3_df1(p, arma::fill::value(NA_REAL));
-  arma::vec F3_df2(p, arma::fill::value(F1_df1));
-  arma::vec F3_p(p, arma::fill::value(NA_REAL));
-
-  for (arma::uword kk = 0; kk < p; ++kk) {
-    arma::vec beta_k = beta_hat.col(kk);
-    const double beta_sum = arma::accu(beta_k);
-    const double Vk2 = (arma::accu(arma::square(beta_k)) -
-      beta_sum * beta_sum / static_cast<double>(n)) / static_cast<double>(n);
-
-    arma::rowvec diag_BJ = (B_sumsq.row(kk) -
-      arma::square(B_sum.row(kk)) / static_cast<double>(n)) / static_cast<double>(n);
-    const double gamma1 = arma::accu(diag_BJ);
-    const double gamma2 = arma::accu(arma::square(diag_BJ));
-    const double numdf = gamma1 * gamma1 / gamma2;
-
-    F3[kk] = (Vk2 / gamma1) / sigma2_delta1;
-    F3_df1[kk] = numdf;
-    F3_p[kk] = R::pf(F3[kk], F3_df1[kk], F3_df2[kk], 0, 0);
-  }
-
-  return List::create(
-    _["F1"] = F1,
-    _["F1_df1"] = F1_df1,
-    _["F1_df2"] = F1_df2,
-    _["F1_p"] = F1_p,
-    _["F2"] = F2,
-    _["F2_df1"] = F2_df1,
-    _["F2_df2"] = F2_df2,
-    _["F2_p"] = F2_p,
-    _["F3"] = F3,
-    _["F3_df1"] = F3_df1,
-    _["F3_df2"] = F3_df2,
-    _["F3_p"] = F3_p,
-    _["q_diag"] = q_diag,
-    _["L_delta1"] = L_delta1,
-    _["L_delta2"] = L_delta2,
-    _["delta1"] = delta1
+  FTestMoments moments = full_trace_moments_sparse(
+    locations, smoother_values, coefficient_values, n
+  );
+  return assemble_f_test_result(
+    beta_hat,
+    RSS_full,
+    RSS_ols,
+    DF_ols,
+    moments,
+    static_cast<double>(n) - 2.0 * trS + trStS
   );
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_local_collinearity_knn_cpp(SEXP XSEXP,
+extern "C" SEXP _LHWL_local_collinearity_knn_cpp(SEXP XSEXP,
                                                          SEXP indexSEXP,
                                                          SEXP distanceSEXP,
                                                          SEXP bandwidthSEXP,
@@ -1334,7 +1362,7 @@ extern "C" SEXP _LHWR_local_collinearity_knn_cpp(SEXP XSEXP,
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_bw_hgwr_grid_cpp(SEXP ySEXP,
+extern "C" SEXP _LHWL_bw_hgwr_grid_cpp(SEXP ySEXP,
                                                SEXP XSEXP,
                                                SEXP DSEXP,
                                                SEXP bwGridSEXP,
@@ -1404,7 +1432,7 @@ extern "C" SEXP _LHWR_bw_hgwr_grid_cpp(SEXP ySEXP,
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_bw_hgwr_knn_grid_cpp(SEXP ySEXP,
+extern "C" SEXP _LHWL_bw_hgwr_knn_grid_cpp(SEXP ySEXP,
                                                    SEXP XSEXP,
                                                    SEXP ZSEXP,
                                                    SEXP bwGridSEXP,
@@ -1524,7 +1552,7 @@ double evaluate_knn_bw_candidate(const arma::vec& y,
   return summary.score;
 }
 
-extern "C" SEXP _LHWR_bw_hgwr_knn_golden_cpp(SEXP ySEXP,
+extern "C" SEXP _LHWL_bw_hgwr_knn_golden_cpp(SEXP ySEXP,
                                                      SEXP XSEXP,
                                                      SEXP ZSEXP,
                                                      SEXP approachSEXP,
@@ -1627,7 +1655,7 @@ extern "C" SEXP _LHWR_bw_hgwr_knn_golden_cpp(SEXP ySEXP,
   END_RCPP
 }
 
-extern "C" SEXP _LHWR_bw_hgwr_golden_cpp(SEXP ySEXP,
+extern "C" SEXP _LHWL_bw_hgwr_golden_cpp(SEXP ySEXP,
                                                  SEXP XSEXP,
                                                  SEXP DSEXP,
                                                  SEXP approachSEXP,

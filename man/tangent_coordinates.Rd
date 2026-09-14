@@ -18,6 +18,13 @@ An \verb{n x 2} matrix of tangent coordinates.
 Map Lorentz hyperboloid points to two-dimensional coordinates in a
 Lorentz-orthonormal basis of \verb{T_mu H^2}.
 }
+\details{
+The columns express \code{\link[=lorentz_log_map]{lorentz_log_map()}} in an orthonormal tangent basis.
+Their ordinary Euclidean norm equals the Lorentz norm of the tangent
+vector. This routine uses the log map's default zero-distance threshold
+\code{1e-10}. To compare training and new points, pass the same \code{mu} in both
+calls; separately estimated centers define different coordinate systems.
+}
 \examples{
 H <- simulate_H2(5, r_max = 2)
 tangent_coordinates(H$Z)

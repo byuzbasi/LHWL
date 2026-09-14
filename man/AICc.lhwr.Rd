@@ -21,3 +21,10 @@ criterion.
 \description{
 LHWR AICc
 }
+\details{
+This extractor does not refit or select a model. AICc requires hat-matrix
+diagnostics; a nonpositive n - tr(S) - 2 denominator produces infinity.
+Gaussian AIC and BIC are also stored in \code{object$LHWR.diagnostic}, but
+\code{bw.lhwr()} directly selects only by AICc or CV. See
+\code{vignette("lhwr-diagnostics-and-tuning", package = "LHWL")} for formulas.
+}

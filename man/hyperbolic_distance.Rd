@@ -20,7 +20,9 @@ upper sheet of the hyperboloid.}
 A numeric vector of distances.
 }
 \description{
-Compute \verb{dH(z,w) = acosh(-<z,w>_L)} with numerical clipping near one.
+Compute \verb{dH(z,w) = acosh(-<z,w>_L)}. The compiled implementation uses an
+equivalent stable hyperbolic identity when the direct Lorentz contraction
+is susceptible to cancellation at large radial coordinates.
 }
 \examples{
 z <- c(1, 0, 0)

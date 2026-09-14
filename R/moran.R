@@ -24,6 +24,29 @@
 #' @param seed Optional random seed used for permutation inference.
 #' @return An object of class `"hgwr_moran"` containing Moran's I, expected I,
 #'   permutation p-value, and settings.
+#' @details
+#' These are descriptive fitted-residual diagnostics, not exact post-fit tests:
+#' smoothing makes residuals nonexchangeable. The global permutation expectation
+#' is -1/(n-1) for a fixed nonconstant vector and fixed zero-diagonal weights,
+#' not the sampling expectation of estimated LHWR residuals. Two-sided p-values
+#' use absolute deviations from that expectation and a plus-one correction.
+#' A count of B permutations gives p-value increments of 1/(B+1).
+#'
+#' Supply nondefault diagnostic geometry, kernel and bandwidth settings
+#' explicitly. They are not all inherited from the fitted model. The direct
+#' kernel choices are bisquare, Gaussian and exponential; use an explicit W
+#' for other kernels. A supplied W determines the diagnostic, so default labels
+#' in the returned object do not describe how that matrix was constructed.
+#' Validate its dimensions, row order, finite nonnegative entries and isolated
+#' rows. Its diagonal is zeroed, then optional row standardization is applied.
+#'
+#' Stored kNN lists are reused only for compact bisquare diagnostic weights.
+#' Gaussian and exponential diagnostics use the full distance matrix, retaining
+#' their nonzero tails beyond the adaptive k-neighbour radius. This requires
+#' quadratic memory in the number of observations. An explicit W remains
+#' supported for user-defined diagnostic weights. See
+#' `vignette("lhwr-diagnostics-and-tuning", package = "LHWL")` for formulas,
+#' reproducible examples and explicit weight construction.
 #' @examples
 #' set.seed(12)
 #' H <- simulate_H2(60, r_max = 3)
@@ -104,6 +127,27 @@ moran.lhwr <- function(object,
 #' @inheritParams moran.lhwr
 #' @return A data frame of class `"hgwr_local_moran"` with local Moran values,
 #'   permutation p-values, z-scores, and Lorentz-hyperbolic LISA cluster labels.
+#' @details
+#' The local statistic is the centred residual times its weighted residual lag,
+#' divided by the mean squared centred residual. High/low classifications refer
+#' to these two centred quantities, not response levels or coefficient signs.
+#' The full residual vector is permuted, rather than keeping the focal residual
+#' fixed. Two-sided absolute deviations use each location's permutation mean;
+#' p-values use a plus-one correction. These are descriptive post-fit checks,
+#' not exact tests for fitted residuals.
+#'
+#' `cluster_type` uses raw p-values <= 0.05 and does not apply multiplicity
+#' adjustment. Changing the plot's alpha only masks stored classifications when
+#' requested; it does not reclassify or adjust p-values. Keep raw classifications
+#' and any explicitly adjusted display in separate columns. Adjustment alone
+#' does not validate the fitted-residual permutation law. Record permutations
+#' and seed separately, as not all settings are stored in the local result.
+#'
+#' The diagnostic weight and kernel-specific cache rules described in
+#' [moran.lhwr()] apply here too. See
+#' `vignette("lhwr-diagnostics-and-tuning", package = "LHWL")` and
+#' `vignette("lhwr-graphics", package = "LHWL")` for tables, cluster maps,
+#' Moran scatterplots and explicit adjusted display rules.
 #' @examples
 #' set.seed(13)
 #' H <- simulate_H2(60, r_max = 3)
@@ -329,6 +373,11 @@ hgwr_moran_lorentz_distance <- function(object, Z) {
 
 hgwr_moran_weights_from_stored_knn <- function(object, kernel, bandwidth, k,
                                                row_standardize) {
+  # A finite neighbour list preserves the supported bisquare kernel exactly.
+  # Noncompact kernels require the full-matrix path to retain positive tails.
+  if (!identical(kernel, "bisquare")) {
+    return(NULL)
+  }
   index <- object$knn_index
   distance <- object$knn_distance
   if (is.null(index) || is.null(distance)) {
@@ -440,11 +489,11 @@ lisa_cluster_type <- function(z, lag_z, p_value, alpha = 0.05) {
 
 lisa_cluster_palette <- function() {
   c(
-    "High-High" = "firebrick",
-    "Low-Low" = "steelblue",
-    "High-Low" = "orange",
-    "Low-High" = "purple",
-    "Not Significant" = "grey65"
+    "Not Significant" = "#F7F7F7",
+    "High-High" = "#D7191C",
+    "Low-Low" = "#2C00A0",
+    "Low-High" = "#ABD9E9",
+    "High-Low" = "#FDA0A0"
   )
 }
 

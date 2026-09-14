@@ -1,9 +1,10 @@
 #' Select LHWR Bandwidth
 #'
 #' Select the kernel bandwidth used by LHWR local regressions. Candidate
-#' bandwidths are scored by either corrected Akaike information criterion
-#' (`AICc`) or leave-one-out cross-validation (`CV`). The selected bandwidth is
-#' the candidate with the smallest score.
+#' Gaussian bandwidths are scored by corrected Akaike information criterion
+#' (`AICc`) or leave-one-out squared-error cross-validation (`CV`). Binomial
+#' bandwidths are scored by leave-one-out Bernoulli log loss. The selected
+#' bandwidth is the candidate with the smallest score.
 #'
 #' @param formula Model formula of the form `response ~ predictors`.
 #' @param data Data frame containing the response and predictor variables used
@@ -56,11 +57,30 @@
 #'   with compact kernels.
 #' @param n_threads Number of OpenMP threads used by `engine = "knn"` when
 #'   OpenMP is available. The default `1` preserves serial execution.
+#' @param family Response family. Gaussian LHWR supports `"AICc"` and `"CV"`;
+#'   binomial LHWR supports `"CV"` and uses leave-one-out Bernoulli log loss.
+#'   When `family = "binomial"` and `approach` is omitted, `"CV"` is selected.
+#' @param control Iteration controls for binomial LHWR, created by
+#'   [stats::glm.control()]. Ignored for Gaussian bandwidth selection.
 #' @return An object of class `"bw.lhwr"`, a list containing the selected
 #'   bandwidth (`bw`), selection criterion (`approach`), kernel, geometry,
 #'   search method, selected score, AICc/CV fields when applicable, hat-matrix
 #'   trace (`trS`), residual sum of squares (`RSS`), the evaluated
 #'   `selection.table`, and the original function call.
+#' @details
+#' AICc and CV are selection criteria; post-fit AIC and BIC are not additional
+#' choices for `approach`. Gaussian CV is a sum of squared leave-one-out errors,
+#' using the supplied representation and candidate radii. It does not relearn
+#' the representation or reselect bandwidth within an outer validation loop.
+#' AICc is infinite when its denominator n - tr(S) - 2 is nonpositive.
+#'
+#' The adaptive neighbour rank is not a guarantee of exactly that many positive
+#' kernel weights. Compact kernels have zero boundary weight; ties and coincident
+#' locations matter. Inspect local positive-weight counts and effective support.
+#' Grid search identifies the minimum among evaluated candidates; review boundary
+#' selections before making a scientifically justified change to the search.
+#' See `vignette("lhwr-diagnostics-and-tuning", package = "LHWL")` for the
+#' criterion formulas, kernel curves, volume rules and engine compatibility.
 #' @examples
 #' set.seed(20260615)
 #' n <- 120
@@ -114,9 +134,23 @@ bw.lhwr <- function(formula, data, Z,
                     tangent_ref = NULL,
                     dMat = NULL,
                     engine = c("dense", "knn"),
-                    n_threads = 1L) {
+                    n_threads = 1L,
+                    family = c("gaussian", "binomial"),
+                    control = stats::glm.control(maxit = 100L)) {
   this.call <- match.call()
+  approach_missing <- missing(approach)
+  family <- match.arg(family)
   approach <- match.arg(approach)
+  if (family == "binomial" && approach_missing) approach <- "CV"
+  if (family == "binomial" && approach != "CV") {
+    stop(
+      "Binomial LHWR bandwidth selection currently supports only `approach = \"CV\"` with leave-one-out Bernoulli log loss.",
+      call. = FALSE
+    )
+  }
+  if (family == "binomial") {
+    control <- lhwr_validate_glm_control(control)
+  }
   kernel <- match.arg(kernel)
   bandwidth_type <- match.arg(bandwidth_type)
   geometry <- match.arg(geometry)
@@ -131,11 +165,23 @@ bw.lhwr <- function(formula, data, Z,
   }
   
   mf <- hgwr_model_frame(formula, data)
-  y <- mf$y
+  if (family == "binomial" &&
+      length(stats::model.offset(mf$model_frame))) {
+    stop(
+      "Formula offsets are not yet supported by binomial `bw.lhwr()`.",
+      call. = FALSE
+    )
+  }
+  response <- lhwr_response(mf$y, family)
+  y <- response$y
   X <- mf$X
   colnames(X) <- clean_coef_names(colnames(X))
+  intercept <- isTRUE(attr(mf$terms, "intercept") == 1L)
   Z <- as_lorentz_matrix(Z, "Z")
   check_hyperboloid(Z, stop_on_fail = TRUE)
+  if (nrow(Z) != length(y)) {
+    stop("`Z` must have the same number of rows as the analysis data.", call. = FALSE)
+  }
   distance <- if (engine == "dense") {
     resolve_geometry_distance(
       Z,
@@ -161,7 +207,28 @@ bw.lhwr <- function(formula, data, Z,
   } else {
     0L
   }
-  selection <- if (engine == "knn") {
+  selection <- if (family == "binomial") {
+    lhwr_binomial_bw_selection(
+      y = y,
+      X = X,
+      Z = Z,
+      D = D,
+      bw_grid = bw_grid,
+      search = search,
+      adaptive = adaptive,
+      bandwidth_type = bandwidth_type,
+      kernel = kernel,
+      engine = engine,
+      lower = lower,
+      upper = upper,
+      tol = tol,
+      max_iter = max_iter,
+      pilot_k = pilot_k_resolved,
+      n_threads = n_threads,
+      intercept = intercept,
+      control = control
+    )
+  } else if (engine == "knn") {
     if (search == "golden") {
       bw_hgwr_knn_golden_search(
         y = y,
@@ -220,6 +287,7 @@ bw.lhwr <- function(formula, data, Z,
   }
   result <- list(
     bw = selection$bw[best_id],
+    family = family,
     approach = approach,
     kernel = kernel,
     adaptive = adaptive,
@@ -236,7 +304,7 @@ bw.lhwr <- function(formula, data, Z,
     distance = distance$label,
     selection.table = selection,
     score = selection$score[best_id],
-    AICc = if (approach == "AICc") selection$score[best_id] else NA_real_,
+    AICc = if (family == "gaussian" && approach == "AICc") selection$score[best_id] else NA_real_,
     CV = if (approach == "CV") selection$score[best_id] else NA_real_,
     trS = selection$trS[best_id],
     RSS = selection$RSS[best_id],
@@ -511,6 +579,7 @@ print.bw.lhwr <- function(x, ...) {
   hgwr_rule()
   info <- data.frame(
     Setting = c(
+      "Family",
       "Criterion",
       "Geometry",
       "Distance",
@@ -526,7 +595,12 @@ print.bw.lhwr <- function(x, ...) {
       "Evaluated candidates"
     ),
     Value = c(
-      hgwr_criterion_label(x$approach),
+      x$family %||% "gaussian",
+      if (identical(x$family, "binomial")) {
+        "Leave-one-out Bernoulli log loss, lower is better"
+      } else {
+        hgwr_criterion_label(x$approach)
+      },
       hgwr_geometry_label(x$geometry),
       x$distance,
       hgwr_kernel_label(x$kernel),

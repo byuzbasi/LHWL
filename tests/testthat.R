@@ -1,4 +1,4 @@
 library(testthat)
-library(LHWR)
+library(LHWL)
 
-test_check("LHWR")
+test_check("LHWL")

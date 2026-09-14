@@ -69,6 +69,30 @@ hyperbolic residual autocorrelation from a fitted LHWR model. By
 default, the neighborhood weights define hyperbolic neighborhoods from
 Lorentz-hyperbolic distances stored in the fitted object.
 }
+\details{
+These are descriptive fitted-residual diagnostics, not exact post-fit tests:
+smoothing makes residuals nonexchangeable. The global permutation expectation
+is -1/(n-1) for a fixed nonconstant vector and fixed zero-diagonal weights,
+not the sampling expectation of estimated LHWR residuals. Two-sided p-values
+use absolute deviations from that expectation and a plus-one correction.
+A count of B permutations gives p-value increments of 1/(B+1).
+
+Supply nondefault diagnostic geometry, kernel and bandwidth settings
+explicitly. They are not all inherited from the fitted model. The direct
+kernel choices are bisquare, Gaussian and exponential; use an explicit W
+for other kernels. A supplied W determines the diagnostic, so default labels
+in the returned object do not describe how that matrix was constructed.
+Validate its dimensions, row order, finite nonnegative entries and isolated
+rows. Its diagonal is zeroed, then optional row standardization is applied.
+
+Stored kNN lists are reused only for compact bisquare diagnostic weights.
+Gaussian and exponential diagnostics use the full distance matrix, retaining
+their nonzero tails beyond the adaptive k-neighbour radius. This requires
+quadratic memory in the number of observations. An explicit W remains
+supported for user-defined diagnostic weights. See
+\code{vignette("lhwr-diagnostics-and-tuning", package = "LHWL")} for formulas,
+reproducible examples and explicit weight construction.
+}
 \examples{
 set.seed(12)
 H <- simulate_H2(60, r_max = 3)

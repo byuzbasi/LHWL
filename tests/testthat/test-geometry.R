@@ -129,6 +129,30 @@ test_that("distance matrix is stable for large hyperbolic radii", {
   expect_true(all(D >= 0))
 })
 
+test_that("Lorentz distances remain accurate for nearby high-radius points", {
+  for (r in c(20, 35)) {
+    delta <- 1e-10
+    Z <- rbind(
+      c(cosh(r), sinh(r), 0),
+      c(cosh(r), sinh(r) * cos(delta), sinh(r) * sin(delta))
+    )
+    expected <- 2 * asinh(sinh(r) * abs(sin(delta / 2)))
+
+    expect_true(all(check_hyperboloid(Z)))
+    expect_equal(hyperbolic_distance(Z[1, ], Z[2, ]), expected, tolerance = 1e-8)
+    expect_equal(
+      hyperbolic_distance_matrix(Z, check = FALSE)[1, 2],
+      expected,
+      tolerance = 1e-8
+    )
+    expect_equal(
+      lorentz_knn(Z, k = 1, check = FALSE)$distance[1, 1],
+      expected,
+      tolerance = 1e-8
+    )
+  }
+})
+
 test_that("tangent-space coordinates and distances are well defined", {
   set.seed(12)
   H <- simulate_H2(30, r_max = 3)
@@ -149,10 +173,37 @@ test_that("tangent-space coordinates and distances are well defined", {
   expect_equal(unname(diag(D)), rep(0, 30), tolerance = 1e-12)
 })
 
+test_that("tangent geometry remains finite at large hyperbolic radii", {
+  for (r in c(20, 35)) {
+    delta <- 1e-10
+    Z <- rbind(
+      c(cosh(r), sinh(r), 0),
+      c(cosh(r), sinh(r) * cos(delta), sinh(r) * sin(delta))
+    )
+    mu <- extrinsic_lorentz_mean(Z)
+    V <- lorentz_log_map(Z, mu = mu)
+    Q <- tangent_coordinates(Z, mu = mu)
+    D <- tangent_distance_matrix(Z, mu = mu)
+
+    expect_true(all(is.finite(mu)))
+    expect_true(all(check_hyperboloid(mu)))
+    expect_true(all(is.finite(V)))
+    expect_true(all(is.finite(Q)))
+    expect_true(all(is.finite(D)))
+    expect_equal(unname(D), unname(as.matrix(stats::dist(Q))), tolerance = 1e-6)
+    expect_equal(
+      D[1, 2],
+      hyperbolic_distance(Z[1, ], Z[2, ], check = FALSE),
+      tolerance = 1e-8
+    )
+    expect_equal(D, t(D), tolerance = 1e-12)
+  }
+})
+
 test_that("C++ distance matrix matches the R reference implementation", {
-  ref_file <- test_path("../../R_reference/geometry_R_reference.R")
+  ref_file <- test_path("../../../R_reference/geometry_R_reference.R")
   skip_if_not(file.exists(ref_file), "R reference files are local development artifacts")
-  ref <- new.env(parent = asNamespace("LHWR"))
+  ref <- new.env(parent = asNamespace("LHWL"))
   sys.source(ref_file, envir = ref)
   
   set.seed(6)
@@ -164,9 +215,9 @@ test_that("C++ distance matrix matches the R reference implementation", {
 })
 
 test_that("C++ Lorentz inner product matches the R reference implementation", {
-  ref_file <- test_path("../../R_reference/geometry_R_reference.R")
+  ref_file <- test_path("../../../R_reference/geometry_R_reference.R")
   skip_if_not(file.exists(ref_file), "R reference files are local development artifacts")
-  ref <- new.env(parent = asNamespace("LHWR"))
+  ref <- new.env(parent = asNamespace("LHWL"))
   sys.source(ref_file, envir = ref)
   
   set.seed(7)

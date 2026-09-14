@@ -23,7 +23,9 @@ bw.lhwr(
   tangent_ref = NULL,
   dMat = NULL,
   engine = c("dense", "knn"),
-  n_threads = 1L
+  n_threads = 1L,
+  family = c("gaussian", "binomial"),
+  control = stats::glm.control(maxit = 100L)
 )
 }
 \arguments{
@@ -96,6 +98,13 @@ with compact kernels.}
 
 \item{n_threads}{Number of OpenMP threads used by \code{engine = "knn"} when
 OpenMP is available. The default \code{1} preserves serial execution.}
+
+\item{family}{Response family. Gaussian LHWR supports \code{"AICc"} and \code{"CV"};
+binomial LHWR supports \code{"CV"} and uses leave-one-out Bernoulli log loss.
+When \code{family = "binomial"} and \code{approach} is omitted, \code{"CV"} is selected.}
+
+\item{control}{Iteration controls for binomial LHWR, created by
+\code{\link[stats:glm.control]{stats::glm.control()}}. Ignored for Gaussian bandwidth selection.}
 }
 \value{
 An object of class \code{"bw.lhwr"}, a list containing the selected
@@ -106,9 +115,25 @@ trace (\code{trS}), residual sum of squares (\code{RSS}), the evaluated
 }
 \description{
 Select the kernel bandwidth used by LHWR local regressions. Candidate
-bandwidths are scored by either corrected Akaike information criterion
-(\code{AICc}) or leave-one-out cross-validation (\code{CV}). The selected bandwidth is
-the candidate with the smallest score.
+Gaussian bandwidths are scored by corrected Akaike information criterion
+(\code{AICc}) or leave-one-out squared-error cross-validation (\code{CV}). Binomial
+bandwidths are scored by leave-one-out Bernoulli log loss. The selected
+bandwidth is the candidate with the smallest score.
+}
+\details{
+AICc and CV are selection criteria; post-fit AIC and BIC are not additional
+choices for \code{approach}. Gaussian CV is a sum of squared leave-one-out errors,
+using the supplied representation and candidate radii. It does not relearn
+the representation or reselect bandwidth within an outer validation loop.
+AICc is infinite when its denominator n - tr(S) - 2 is nonpositive.
+
+The adaptive neighbour rank is not a guarantee of exactly that many positive
+kernel weights. Compact kernels have zero boundary weight; ties and coincident
+locations matter. Inspect local positive-weight counts and effective support.
+Grid search identifies the minimum among evaluated candidates; review boundary
+selections before making a scientifically justified change to the search.
+See \code{vignette("lhwr-diagnostics-and-tuning", package = "LHWL")} for the
+criterion formulas, kernel curves, volume rules and engine compatibility.
 }
 \examples{
 set.seed(20260615)

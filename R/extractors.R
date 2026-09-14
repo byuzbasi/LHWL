@@ -5,8 +5,17 @@
 #' `predict.lhwr()` returns fitted values for the calibration data when
 #' `newdata` is omitted. For new observations, supply both the Euclidean
 #' covariates in `newdata` and their Lorentz-hyperboloid coordinates in `Znew`.
-#' Prediction is then obtained by fitting a local weighted least-squares model
-#' at each new Lorentz location using only the original calibration data.
+#' Prediction is then obtained by fitting a local weighted Gaussian or
+#' binomial model at each new Lorentz location using only the original
+#' calibration data.
+#'
+#' Tangent-E prediction reuses the stored training reference point for every
+#' prediction batch. If an older object has no stored reference, it is
+#' reconstructed from `object$Z`, never from `Znew`. Identical mapped points
+#' have exactly zero distance; nearby distinct tangent coordinates are not
+#' rounded to zero by a pairwise-distance tolerance. With unchanged model
+#' settings, predicting the training rows reproduces the calibration fit up
+#' to floating-point error.
 #'
 #' @param object An LHWR model object returned by [lhwr()].
 #' @param newdata Optional data frame containing predictor variables for new
@@ -14,7 +23,8 @@
 #'   calibration data.
 #' @param Znew Optional `m x 3` Lorentz-hyperboloid coordinate matrix for
 #'   `newdata`. Required when `newdata` is supplied.
-#' @param type Prediction type. `"response"` returns fitted responses and
+#' @param type Prediction type. `"response"` returns fitted responses
+#'   (probabilities for binomial LHWR), `"link"` returns linear predictors, and
 #'   `"coefficients"` returns the local coefficient matrix used for prediction.
 #' @param dMat Optional `m x n` distance matrix from new observations to the
 #'   original calibration observations. If supplied, it is used directly.
@@ -69,14 +79,18 @@ coef.lhwr <- function(object, ...) {
 #' @rdname fitted.lhwr
 #' @export
 predict.lhwr <- function(object, newdata = NULL, Znew = NULL,
-                         type = c("response", "coefficients"),
+                         type = c("response", "link", "coefficients"),
                          dMat = NULL, bw = NULL, kernel = NULL,
                          adaptive = NULL, bandwidth_type = NULL,
                          geometry = NULL, ...) {
   if (!is_lhwr_object(object)) stop('`object` must be an LHWR model object.', call. = FALSE)
   type <- match.arg(type)
   if (is.null(newdata)) {
-    return(if (type == "response") object$y_hat else object$beta_hat)
+    if (type == "response") return(object$y_hat)
+    if (type == "link") {
+      return(object$linear_predictor %||% object$y_hat)
+    }
+    return(object$beta_hat)
   }
 
   args <- object$LHWR.arguments %||% object$HGWR.arguments
@@ -88,6 +102,7 @@ predict.lhwr <- function(object, newdata = NULL, Znew = NULL,
   bandwidth_type <- bandwidth_type %||% args$bandwidth_type
   geometry <- geometry %||% args$geometry
   bw <- bw %||% args$bw
+  family <- object$family %||% args$family %||% "gaussian"
 
   kernel <- match.arg(kernel, hgwr_kernel_names())
   bandwidth_type <- match.arg(bandwidth_type, c("knn", "volume"))
@@ -96,7 +111,11 @@ predict.lhwr <- function(object, newdata = NULL, Znew = NULL,
 
   X_train <- stats::model.matrix(object$lm)
   colnames(X_train) <- clean_coef_names(colnames(X_train))
-  y_train <- stats::model.response(stats::model.frame(object$lm))
+  y_train <- if (family == "binomial") {
+    as.numeric(object$SDF$y)
+  } else {
+    stats::model.response(stats::model.frame(object$lm))
+  }
   X_new <- lhwr_predict_model_matrix(object, newdata)
   if (!identical(colnames(X_new), colnames(X_train))) {
     stop("`newdata` does not produce the same model matrix columns as the fitted LHWR model.", call. = FALSE)
@@ -127,9 +146,42 @@ predict.lhwr <- function(object, newdata = NULL, Znew = NULL,
     bandwidth_type = bandwidth_type,
     training_bandwidth = object$bandwidth
   )
-  beta_new <- lhwr_predict_local_coefficients(y_train, X_train, D_new, bw_new, kernel)
+  beta_new <- if (family == "binomial") {
+    prediction_neighborhood <- list(
+      engine = "dense",
+      D = t(D_new),
+      bandwidth = bw_new,
+      index = NULL,
+      distance = NULL
+    )
+    prediction_fit <- lhwr_binomial_fit_native(
+      y = y_train,
+      X = X_train,
+      X_focus = X_new,
+      neighborhood = prediction_neighborhood,
+      intercept = isTRUE(object$intercept),
+      kernel = kernel,
+      n_threads = args$n_threads %||% 1L,
+      control = args$control %||% stats::glm.control(maxit = 100L),
+      return_inference = FALSE
+    )
+    if (any(!prediction_fit$converged)) {
+      warning(
+        sum(!prediction_fit$converged),
+        " new-location binomial fits did not meet the convergence criterion.",
+        call. = FALSE
+      )
+    }
+    prediction_fit$beta_hat
+  } else {
+    lhwr_predict_local_coefficients(
+      y_train, X_train, D_new, bw_new, kernel
+    )
+  }
   if (type == "coefficients") return(beta_new)
-  as.numeric(rowSums(X_new * beta_new))
+  eta <- as.numeric(rowSums(X_new * beta_new))
+  if (type == "link" || family == "gaussian") return(eta)
+  stats::plogis(eta)
 }
 
 #' @rdname fitted.lhwr
@@ -177,11 +229,19 @@ lhwr_predict_distance <- function(object, Znew, geometry = c("lorentz", "tangent
   }
   train_coords <- tangent_coordinates(object$Z, mu = mu)
   new_coords <- tangent_coordinates(Znew, mu = mu)
-  D2 <- outer(rowSums(new_coords^2), rowSums(train_coords^2), "+") -
-    2 * tcrossprod(new_coords, train_coords)
-  D2[D2 < 0 & D2 > -sqrt(.Machine$double.eps)] <- 0
-  D2[D2 < 0] <- NA_real_
-  sqrt(D2)
+  # Coordinate differences avoid cancellation in ||a||^2 + ||b||^2 - 2<a,b>.
+  # In particular, identical points must have exactly zero distance: a tiny
+  # positive self-distance would count as an extra adaptive-kNN neighbour.
+  dx <- abs(outer(new_coords[, 1L], train_coords[, 1L], "-"))
+  dy <- abs(outer(new_coords[, 2L], train_coords[, 2L], "-"))
+  scale <- pmax(dx, dy)
+  D <- matrix(0, nrow(new_coords), nrow(train_coords))
+  positive <- scale > 0
+  D[positive] <- scale[positive] * sqrt(
+    (dx[positive] / scale[positive])^2 +
+      (dy[positive] / scale[positive])^2
+  )
+  D
 }
 
 lhwr_predict_bandwidth <- function(D_new, bw, adaptive, bandwidth_type,
@@ -203,7 +263,16 @@ lhwr_predict_bandwidth <- function(D_new, bw, adaptive, bandwidth_type,
     if (bandwidth_type == "volume") {
       warning("Prediction with `bandwidth_type = \"volume\"` uses kNN radii for new observations.", call. = FALSE)
     }
-    apply(D_new, 1L, function(d) sort(d[is.finite(d)])[k])
+    apply(D_new, 1L, function(d) {
+      positive <- sort(d[is.finite(d) & d > 0])
+      if (length(positive) < k) {
+        stop(
+          "Fewer than `k` positive finite calibration distances are available for prediction.",
+          call. = FALSE
+        )
+      }
+      positive[k]
+    })
   } else {
     if (bandwidth_type == "volume") {
       rep(hyperbolic_radius_from_volume(bw), nrow(D_new))
@@ -220,18 +289,19 @@ lhwr_predict_local_coefficients <- function(y, X, D_new, bw_new, kernel) {
   colnames(beta) <- colnames(X)
   for (i in seq_len(nrow(D_new))) {
     w <- as.numeric(hgwr_kernel(D_new[i, ], bw_new[i], kernel = kernel))
-    ok <- is.finite(w) & w > 0
-    if (sum(ok) < p) {
-      ok <- order(D_new[i, ])[seq_len(min(ncol(D_new), max(p, sum(ok))))]
-      w <- rep(0, length(w))
-      w[ok] <- 1
+    if (any(!is.finite(w))) {
+      stop("Prediction produced non-finite kernel weights.", call. = FALSE)
     }
-    Xw <- X * sqrt(w)
-    yw <- y * sqrt(w)
-    beta[i, ] <- tryCatch(
-      as.numeric(qr.coef(qr(Xw), yw)),
-      error = function(e) rep(NA_real_, p)
+    XtWX <- crossprod(X, X * w)
+    XtWy <- crossprod(X, w * y)
+    beta_i <- tryCatch(
+      solve(XtWX, XtWy),
+      error = function(e) MASS::ginv(XtWX) %*% XtWy
     )
+    if (any(!is.finite(beta_i))) {
+      beta_i <- MASS::ginv(XtWX) %*% XtWy
+    }
+    beta[i, ] <- as.numeric(beta_i)
   }
   beta
 }

@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: Please cite LHWL and, when available, the primary LHWR methods paper. For
+  an extension, additionally cite the corresponding methods paper.
+type: software
+title: 'LHWL: Lorentz Hyperbolic Weighted Learning'
+version: 0.3.1
+authors:
+  - family-names: Yüzbaşı
+    given-names: Bahadır
+  - family-names: Küçükarslan Yüzbaşı
+    given-names: Zühal
+repository-code: https://github.com/byuzbasi/LHWL
+url: https://github.com/byuzbasi/LHWL
+license: GPL-3.0-or-later
+abstract: Local regression and penalized local regression over representations on
+  the Lorentz model of two-dimensional hyperbolic space, with bandwidth and regularization
+  selection, diagnostics, and visualization.
+keywords:
+  - hyperbolic geometry
+  - local regression
+  - Lorentz model
+  - penalized regression
+  - variable selection

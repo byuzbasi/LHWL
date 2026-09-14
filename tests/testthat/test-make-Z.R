@@ -27,6 +27,16 @@ test_that("feature-map construction rejects invalid raw inputs", {
   expect_error(make_lhwr_Z_features(matrix(c(1, NA, 2, 3), ncol = 2)), "missing")
 })
 
+test_that("constant feature components are handled explicitly", {
+  X <- cbind(constant = rep(2, 4), varying = 1:4)
+  expect_warning(
+    Z <- make_lhwr_Z_features(X, scale = TRUE),
+    "Constant feature component"
+  )
+  expect_equal(unname(Z[, "z1"]), rep(0, 4))
+  expect_true(check_lhwr_Z(Z))
+})
+
 test_that("network spectral construction creates valid Lorentz coordinates", {
   A <- matrix(c(
     0, 1, 1, 0, 0,

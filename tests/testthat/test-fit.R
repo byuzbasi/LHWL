@@ -172,9 +172,9 @@ test_that("LOOCV sets focal self-weight to zero", {
 })
 
 test_that("C++ LOOCV score matches the R reference implementation", {
-  ref_file <- test_path("../../R_reference/bandwidth_R_reference.R")
+  ref_file <- test_path("../../../R_reference/bandwidth_R_reference.R")
   skip_if_not(file.exists(ref_file), "R reference files are local development artifacts")
-  ref <- new.env(parent = asNamespace("LHWR"))
+  ref <- new.env(parent = asNamespace("LHWL"))
   sys.source(ref_file, envir = ref)
   
   set.seed(10)
@@ -259,9 +259,9 @@ test_that("bandwidth grid keeps the explicit simulation search path", {
 })
 
 test_that("C++ bandwidth grid selection matches the R reference implementation", {
-  ref_file <- test_path("../../R_reference/bandwidth_R_reference.R")
+  ref_file <- test_path("../../../R_reference/bandwidth_R_reference.R")
   skip_if_not(file.exists(ref_file), "R reference files are local development artifacts")
-  ref <- new.env(parent = asNamespace("LHWR"))
+  ref <- new.env(parent = asNamespace("LHWL"))
   sys.source(ref_file, envir = ref)
   
   set.seed(11)
@@ -275,7 +275,7 @@ test_that("C++ bandwidth grid selection matches the R reference implementation",
   
   for (approach in c("AICc", "CV")) {
     for (bandwidth_type in c("knn", "volume")) {
-      bw_r <- ref$bw.lhwr(
+      bw_r <- ref$bw.hgwr(
         y ~ x1 + x2,
         data = dat,
         Z = H$Z,
@@ -305,9 +305,9 @@ test_that("C++ bandwidth grid selection matches the R reference implementation",
 })
 
 test_that("C++ hgwr.fit matches the R reference implementation", {
-  ref_file <- test_path("../../R_reference/fit_R_reference.R")
+  ref_file <- test_path("../../../R_reference/fit_R_reference.R")
   skip_if_not(file.exists(ref_file), "R reference files are local development artifacts")
-  ref <- new.env(parent = asNamespace("LHWR"))
+  ref <- new.env(parent = asNamespace("LHWL"))
   sys.source(ref_file, envir = ref)
   
   set.seed(9)
@@ -582,4 +582,31 @@ test_that("kNN engine computes finite local R2 in full diagnostics", {
   expect_true("Local_R2" %in% names(fit$SDF))
   expect_true(any(is.finite(fit$SDF$Local_R2)))
   expect_false(all(is.na(fit$SDF$Local_R2)))
+})
+
+test_that("dense and kNN engines agree for nearby high-radius locations", {
+  set.seed(161)
+  n <- 40
+  r <- 35
+  theta <- seq(0, by = 1e-10, length.out = n)
+  Z <- cbind(
+    z0 = cosh(r),
+    z1 = sinh(r) * cos(theta),
+    z2 = sinh(r) * sin(theta)
+  )
+  x <- rnorm(n)
+  y <- 1 + 2 * x + rnorm(n, sd = 0.1)
+  dat <- data.frame(y, x)
+
+  fit_dense <- lhwr(
+    y ~ x, dat, Z = Z, bw = 12, adaptive = TRUE,
+    kernel = "bisquare", engine = "dense"
+  )
+  fit_knn <- lhwr(
+    y ~ x, dat, Z = Z, bw = 12, adaptive = TRUE,
+    kernel = "bisquare", engine = "knn"
+  )
+
+  expect_equal(fit_knn$beta_hat, fit_dense$beta_hat, tolerance = 1e-10)
+  expect_equal(fit_knn$y_hat, fit_dense$y_hat, tolerance = 1e-10)
 })

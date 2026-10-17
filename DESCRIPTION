@@ -23,7 +23,8 @@ Description: Implements local regression on the two-dimensional Lorentz
     need not be geographic. Penalized selection summaries are distinct from
     post-selection statistical inference.
 License: GPL (>= 3)
-URL: https://github.com/byuzbasi/LHWL
+URL: https://byuzbasi.github.io/LHWL/,
+    https://github.com/byuzbasi/LHWL
 BugReports: https://github.com/byuzbasi/LHWL/issues
 Encoding: UTF-8
 Language: en-US

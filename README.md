@@ -1,4 +1,10 @@
-# LHWL
+# LHWL <img src="man/figures/logo.svg" align="right" width="120" alt="LHWL conceptual hyperbolic neighbourhood logo" />
+
+[Documentation](https://byuzbasi.github.io/LHWL/) · [Get started](https://byuzbasi.github.io/LHWL/articles/lorentz-hgwr-introduction.html) · [Lasso guide](https://byuzbasi.github.io/LHWL/articles/lhwpr-lasso.html) · [Reference](https://byuzbasi.github.io/LHWL/reference/index.html)
+
+![LHWL: local learning through a Lorentz-hyperbolic representation](man/figures/banner.svg)
+
+*Conceptual geometry illustration, not an estimated coefficient surface.*
 
 `LHWL` provides local regression over representations on the Lorentz model of
 two-dimensional hyperbolic space. Responses and predictors remain ordinary

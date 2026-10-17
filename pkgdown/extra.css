@@ -1,5 +1,11 @@
 /* Local documentation styles; no external fonts or tracking. */
 main { line-height: 1.68; }
+body { line-height: 1.72; }
+.navbar { border-bottom: 1px solid #d9e5e5; }
+.navbar-brand { font-weight: 700; letter-spacing: -.03em; }
+main h1 { letter-spacing: -.04em; line-height: 1.15; }
+main h2 { padding-top: .7rem; border-top: 1px solid #dce6e7; }
+main pre { border-radius: .6rem; }
 main h2 { margin-top: 2.4rem; }
 main h3 { margin-top: 1.65rem; }
 main pre { font-size: 0.86rem; }
